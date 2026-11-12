@@ -69,6 +69,13 @@ CREATE TABLE IF NOT EXISTS story_views (
   PRIMARY KEY (story_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS blocks (
+  owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  peer_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (owner_id, peer_id)
+);
+
 CREATE TABLE IF NOT EXISTS calls (
   id         TEXT PRIMARY KEY,
   caller_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -85,3 +92,5 @@ CREATE INDEX IF NOT EXISTS idx_stories_expiry ON stories (expires_at);
 `);
 
 export const now = () => Date.now();
+
+CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks (owner_id);
