@@ -51,7 +51,10 @@ router.post('/', rateLimit({ max: 240 }), (req, res) => {
   if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(to)) {
     return res.status(404).json({ error: 'user_not_found' });
   }
-
+if (db.prepare('SELECT 1 FROM blocks WHERE owner_id = ? AND peer_id = ?').get(to, req.user.id)) {
+    return res.status(403).json({ error: 'blocked_by_recipient' });
+  }
+  
   const message = {
     id: id(),
     sender_id: req.user.id,
@@ -94,8 +97,7 @@ router.delete('/:messageId', (req, res) => {
 
   db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
   const io = req.app.get('io');
-  io?.to(`user:${row.recipient_id}`).emit('message:deleted', { id: row.id });
+  io?.to(`user:${row.recipient_id}`).emit('message:deleted', { id:  row.id });
   res.json({ ok: true });
 });
-
 export default router;
