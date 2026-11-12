@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "M4zk1pL4y",
+    "slug": "m4zk1pl4y",
+    "version": "0.1.0",
+    "scheme": "m4zk1pl4y",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0A",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.m4zk1pl4y.chat",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Untuk scan QR dan video call.",
+        "NSMicrophoneUsageDescription": "Untuk voice call.",
+        "NSLocationWhenInUseUsageDescription": "Untuk fitur teman sekitar."
+      }
+    },
+    "android": {
+      "package": "ai.m4zk1pl4y.chat",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "MODIFY_AUDIO_SETTINGS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        { "cameraPermission": "Izinkan kamera untuk scan QR." }
+      ],
+      [
+        "expo-location",
+        { "locationAlwaysAndWhenInUsePermission": "Izinkan lokasi untuk teman sekitar." }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Izinkan kamera untuk video call.",
+          "microphonePermission": "Izinkan mikrofon untuk voice call."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
