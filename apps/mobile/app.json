@@ -7,7 +7,13 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0A0A0A",
+    "icon": "../../logo.png",
     "assetBundlePatterns": ["**/*"],
+    "splash": {
+      "image": "../../logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ai.m4zk1pl4y.chat",
@@ -19,6 +25,11 @@
     },
     "android": {
       "package": "ai.m4zk1pl4y.chat",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "../../logo.png",
+        "backgroundColor": "#0A0A0A"
+      },
       "permissions": [
         "CAMERA",
         "RECORD_AUDIO",
@@ -37,6 +48,14 @@
       [
         "expo-location",
         { "locationAlwaysAndWhenInUsePermission": "Izinkan lokasi untuk teman sekitar." }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "../../logo.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0A0A0A"
+        }
       ],
       [
         "@config-plugins/react-native-webrtc",
