@@ -10,6 +10,7 @@ import contactRoutes from './routes/contacts.js';
 import messageRoutes from './routes/messages.js';
 import storyRoutes from './routes/stories.js';
 import nearbyRoutes from './routes/nearby.js';
+import blockRoutes from './routes/blocks.js';
 
 const app = express();
 const server = http.createServer(app);
@@ -31,7 +32,7 @@ app.use('/v1/contacts', contactRoutes);
 app.use('/v1/messages', messageRoutes);
 app.use('/v1/stories', storyRoutes);
 app.use('/v1/nearby', nearbyRoutes);
-
+app.use('/v1/blocks', blockRoutes);
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
 app.use((err, _req, res, _next) => {
   console.error(err);
