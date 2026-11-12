@@ -35,8 +35,6 @@ router.get('/', (req, res) => {
          AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.owner_id = ? AND b.peer_id = users.id)`,
     )
     .all(me.id, cutoff, me.id);
-    )
-    .all(me.id, cutoff);
 
   const users = rows
     .map((u) => ({
