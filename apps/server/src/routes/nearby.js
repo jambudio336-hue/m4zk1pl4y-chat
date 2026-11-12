@@ -31,7 +31,10 @@ router.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT * FROM users
-       WHERE id != ? AND lat IS NOT NULL AND lng IS NOT NULL AND location_at > ?`,
+       WHERE id != ? AND lat IS NOT NULL AND lng IS NOT NULL AND location_at > ?
+         AND NOT EXISTS (SELECT 1 FROM blocks b WHERE b.owner_id = ? AND b.peer_id = users.id)`,
+    )
+    .all(me.id, cutoff, me.id);
     )
     .all(me.id, cutoff);
 
