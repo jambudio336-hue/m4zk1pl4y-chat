@@ -82,14 +82,18 @@ export default function Chats() {
               <Text style={styles.pendingName} numberOfLines={1}>
                 {p.peer.displayName}
               </Text>
-              <BrutalButton
-                compact
-                label="TERIMA"
-                onPress={async () => {
-                  await api.acceptContact(p.contactId);
-                  load();
-                }}
-              />
+              {p.direction === 'incoming' ? (
+                <BrutalButton
+                  compact
+                  label="TERIMA"
+                  onPress={async () => {
+                    await api.acceptContact(p.contactId);
+                    load();
+                  }}
+                />
+              ) : (
+                <Text style={styles.preview}>MENUNGGU</Text>
+              )}
             </View>
           ))}
         </View>
