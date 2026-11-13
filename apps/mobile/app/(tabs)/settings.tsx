@@ -42,9 +42,16 @@ export default function Settings() {
         text: 'HAPUS',
         style: 'destructive',
         onPress: async () => {
-          await api.deleteAccount().catch(() => {});
-          await wipeDevice();
-          router.replace('/onboarding');
+          try {
+            await api.deleteAccount();
+            await wipeDevice();
+            router.replace('/onboarding');
+          } catch {
+            Alert.alert(
+              'PENGHAPUSAN GAGAL',
+              'Server tidak mengonfirmasi penghapusan akun. Data dan kunci di perangkat tetap disimpan; periksa koneksi lalu coba lagi.',
+            );
+          }
         },
       },
     ]);
