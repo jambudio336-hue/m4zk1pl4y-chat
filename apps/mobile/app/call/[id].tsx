@@ -29,6 +29,8 @@ export default function Call() {
   const rtc = useRef<WebRTC | null>(null);
   const pc = useRef<any>(null);
   const stream = useRef<any>(null);
+  const socketHandlers = useRef<{ socket: any; answer: any; ice: any; end: any } | null>(null);
+  const pendingIce = useRef<any[]>([]);
   const callId = useRef(String(incomingCallId || `call_${Math.random().toString(36).slice(2, 10)}`));
 
   const video = mode === 'video';
@@ -80,18 +82,25 @@ export default function Call() {
       };
 
       const onAnswer = async ({ sdp, callId: answerCallId }: any) => {
-        if (answerCallId && answerCallId !== callId.current) return;
+        if (answerCallId !== callId.current) return;
         await peer.setRemoteDescription(new mod.RTCSessionDescription(sdp));
-      };
-      const onIce = async ({ candidate }: any) => {
-        try {
-          await peer.addIceCandidate(new mod.RTCIceCandidate(candidate));
-        } catch {
-          /* late candidate */
+        for (const candidate of pendingIce.current.splice(0)) {
+          await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
         }
       };
-      const onEnd = () => hangup();
+      const onIce = async ({ candidate, callId: iceCallId }: any) => {
+        if (iceCallId !== callId.current || !candidate) return;
+        if (!peer.remoteDescription) {
+          pendingIce.current.push(candidate);
+          return;
+        }
+        await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+      };
+      const onEnd = ({ callId: endedCallId }: any) => {
+        if (endedCallId === callId.current) hangup(false);
+      };
 
+      socketHandlers.current = { socket, answer: onAnswer, ice: onIce, end: onEnd };
       socket.on('call:answer', onAnswer);
       socket.on('call:ice', onIce);
       socket.on('call:end', onEnd);
@@ -99,6 +108,9 @@ export default function Call() {
       if (incoming === '1' && offer) {
         const remoteOffer = JSON.parse(String(offer));
         await peer.setRemoteDescription(new mod.RTCSessionDescription(remoteOffer));
+        for (const candidate of pendingIce.current.splice(0)) {
+          await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+        }
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
         socket.emit('call:answer', {
@@ -127,13 +139,20 @@ export default function Call() {
 
     return () => {
       cancelled = true;
+      if (socketHandlers.current) {
+        const { socket, answer, ice, end } = socketHandlers.current;
+        socket.off('call:answer', answer);
+        socket.off('call:ice', ice);
+        socket.off('call:end', end);
+        socketHandlers.current = null;
+      }
       stream.current?.getTracks().forEach((t: any) => t.stop());
       pc.current?.close?.();
     };
   }, [id, video, session?.user.id, incoming, incomingCallId, offer]);
 
-  function hangup() {
-    getSocket()?.emit('call:end', { to: String(id), callId: callId.current });
+  function hangup(notifyPeer = true) {
+    if (notifyPeer) getSocket()?.emit('call:end', { to: String(id), callId: callId.current });
     stream.current?.getTracks().forEach((t: any) => t.stop());
     pc.current?.close?.();
     router.back();
