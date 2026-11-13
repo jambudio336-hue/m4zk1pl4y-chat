@@ -68,9 +68,13 @@ async function handle(req: Request) {
     const isReg = path.endsWith("register");
     let challenge: any;
     if (isReg) {
-      if (!/^[a-z0-9_]{3,24}$/.test(body.handle || "") || typeof body.displayName !== "string" || !body.displayName.trim() || body.displayName.length>48 || typeof body.boxPublicKey!=="string" || un64(body.boxPublicKey).length!==32) return fail("invalid_body");
-      const { data: existing } = await db.from("m4zk_users").select("id").or("handle.eq."+body.handle+",public_key.eq."+body.publicKey).limit(1);
-      if (existing?.length) return fail(existing[0].handle ? "handle_taken" : "key_registered",409);
+      if (!/^[a-z0-9_-]{3,24}$/.test(body.handle || "") || typeof body.displayName !== "string" || !body.displayName.trim() || body.displayName.length>48 || typeof body.publicKey!=="string" || un64(body.publicKey).length!==32 || typeof body.boxPublicKey!=="string" || un64(body.boxPublicKey).length!==32 || typeof body.signature!=="string" || typeof body.challengeId!=="string") return fail("invalid_body");
+      const { data: existingHandle, error: handleLookupError } = await db.from("m4zk_users").select("id").eq("handle",body.handle).maybeSingle();
+      if (handleLookupError) return fail("register_check_failed",500);
+      if (existingHandle) return fail("handle_taken",409);
+      const { data: existingKey, error: keyLookupError } = await db.from("m4zk_users").select("id").eq("public_key",body.publicKey).maybeSingle();
+      if (keyLookupError) return fail("register_check_failed",500);
+      if (existingKey) return fail("key_registered",409);
       const { data } = await db.from("m4zk_challenges").select("*").eq("id",body.challengeId).eq("public_key",body.publicKey).gt("expires_at",now()).maybeSingle();
       challenge=data;
     } else {
