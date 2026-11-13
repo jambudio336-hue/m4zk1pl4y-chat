@@ -80,14 +80,17 @@ export default function Chat() {
     };
     const onRead = () => setBubbles((prev) => prev.map((b) => ({ ...b, at: b.at })));
 
+    const onReconnect = () => load(peerBoxKey).catch(() => {});
     socket.on('message:new', onNew);
     socket.on('typing', onTyping);
     socket.on('message:read', onRead);
+    socket.on('connect', onReconnect);
 
     return () => {
       socket.off('message:new', onNew);
       socket.off('typing', onTyping);
       socket.off('message:read', onRead);
+      socket.off('connect', onReconnect);
     };
   }, [id, peerBoxKey, decode]);
 
