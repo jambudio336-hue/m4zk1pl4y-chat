@@ -18,7 +18,7 @@ const ICE = {
 };
 
 export default function Call() {
-  const { id, mode, handle } = useLocalSearchParams<{ id: string; mode?: string; handle?: string }>();
+  const { id, mode, handle, incoming, callId: incomingCallId, offer } = useLocalSearchParams<{ id: string; mode?: string; handle?: string; incoming?: string; callId?: string; offer?: string }>();
   const { session } = useSession();
   const [status, setStatus] = useState('menyambung...');
   const [muted, setMuted] = useState(false);
@@ -29,7 +29,7 @@ export default function Call() {
   const rtc = useRef<WebRTC | null>(null);
   const pc = useRef<any>(null);
   const stream = useRef<any>(null);
-  const callId = useRef(`call_${Math.random().toString(36).slice(2, 10)}`);
+  const callId = useRef(String(incomingCallId || `call_${Math.random().toString(36).slice(2, 10)}`));
 
   const video = mode === 'video';
 
@@ -79,7 +79,8 @@ export default function Call() {
         if (['failed', 'disconnected'].includes(peer.connectionState)) setStatus('terputus');
       };
 
-      const onAnswer = async ({ sdp }: any) => {
+      const onAnswer = async ({ sdp, callId: answerCallId }: any) => {
+        if (answerCallId && answerCallId !== callId.current) return;
         await peer.setRemoteDescription(new mod.RTCSessionDescription(sdp));
       };
       const onIce = async ({ candidate }: any) => {
@@ -95,14 +96,27 @@ export default function Call() {
       socket.on('call:ice', onIce);
       socket.on('call:end', onEnd);
 
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      socket.emit('call:offer', {
-        to: String(id),
-        callId: callId.current,
-        sdp: offer,
-        mode: video ? 'video' : 'audio',
-      });
+      if (incoming === '1' && offer) {
+        const remoteOffer = JSON.parse(String(offer));
+        await peer.setRemoteDescription(new mod.RTCSessionDescription(remoteOffer));
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        socket.emit('call:answer', {
+          to: String(id),
+          callId: callId.current,
+          sdp: answer,
+        });
+        setStatus('menjawab panggilan...');
+      } else {
+        const outgoingOffer = await peer.createOffer();
+        await peer.setLocalDescription(outgoingOffer);
+        socket.emit('call:offer', {
+          to: String(id),
+          callId: callId.current,
+          sdp: outgoingOffer,
+          mode: video ? 'video' : 'audio',
+        });
+      }
 
       return () => {
         socket.off('call:answer', onAnswer);
@@ -116,7 +130,7 @@ export default function Call() {
       stream.current?.getTracks().forEach((t: any) => t.stop());
       pc.current?.close?.();
     };
-  }, [id, video, session?.user.id]);
+  }, [id, video, session?.user.id, incoming, incomingCallId, offer]);
 
   function hangup() {
     getSocket()?.emit('call:end', { to: String(id), callId: callId.current });
