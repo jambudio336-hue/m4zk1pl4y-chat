@@ -12,6 +12,7 @@ export function assertApiConfigured(): void {
 export type Contact = {
   contactId: string;
   status: 'pending' | 'accepted';
+  direction?: 'incoming' | 'outgoing';
   createdAt: number;
   peer: {
     id: string;
