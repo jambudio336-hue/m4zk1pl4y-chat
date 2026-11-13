@@ -13,10 +13,13 @@ router.get('/', (req, res) => {
   const rows = db
     .prepare(
       `SELECT s.*, u.handle, u.display_name, u.accent,
+              COALESCE(sr.nonce, s.nonce) AS viewer_nonce,
+              COALESCE(sr.ciphertext, s.ciphertext) AS viewer_ciphertext,
               (SELECT COUNT(*) FROM story_views v WHERE v.story_id = s.id) AS view_count,
               (SELECT COUNT(*) FROM story_views v WHERE v.story_id = s.id AND v.user_id = ?) AS seen
        FROM stories s
        JOIN users u ON u.id = s.user_id
+       LEFT JOIN story_recipients sr ON sr.story_id = s.id AND sr.user_id = ?
        WHERE s.expires_at > ?
          AND (
            s.user_id = ?
@@ -27,7 +30,7 @@ router.get('/', (req, res) => {
          )
        ORDER BY s.created_at DESC`,
     )
-    .all(req.user.id, now(), req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, now(), req.user.id, req.user.id);
 
   res.json({
     stories: rows.map((s) => ({
@@ -36,8 +39,8 @@ router.get('/', (req, res) => {
       handle: s.handle,
       displayName: s.display_name,
       accent: s.accent,
-      nonce: s.nonce,
-      ciphertext: s.ciphertext,
+      nonce: s.viewer_nonce,
+      ciphertext: s.viewer_ciphertext,
       kind: s.kind,
       createdAt: s.created_at,
       expiresAt: s.expires_at,
@@ -53,6 +56,11 @@ router.post('/', rateLimit({ max: 30 }), (req, res) => {
     .object({
       nonce: z.string().max(64),
       ciphertext: z.string().max(200_000),
+      recipients: z.array(z.object({
+        userId: z.string(),
+        nonce: z.string().max(64),
+        ciphertext: z.string().max(200_000),
+      })).max(500).optional(),
       kind: z.enum(['text', 'image']).optional(),
     })
     .safeParse(req.body);
@@ -72,6 +80,27 @@ router.post('/', rateLimit({ max: 30 }), (req, res) => {
     `INSERT INTO stories (id, user_id, nonce, ciphertext, kind, expires_at, created_at)
      VALUES (@id, @user_id, @nonce, @ciphertext, @kind, @expires_at, @created_at)`,
   ).run(story);
+
+  const insertRecipient = db.prepare(
+    'INSERT INTO story_recipients (story_id, user_id, nonce, ciphertext) VALUES (?, ?, ?, ?)',
+  );
+  const insertRecipients = db.transaction((recipients) => {
+    const seen = new Set();
+    for (const recipient of recipients) {
+      if (seen.has(recipient.userId) || recipient.userId === req.user.id) continue;
+      seen.add(recipient.userId);
+      const accepted = db.prepare(
+        "SELECT 1 FROM contacts WHERE owner_id = ? AND peer_id = ? AND status = 'accepted'",
+      ).get(req.user.id, recipient.userId);
+      if (!accepted) continue;
+      const blocked = db.prepare(
+        'SELECT 1 FROM blocks WHERE (owner_id = ? AND peer_id = ?) OR (owner_id = ? AND peer_id = ?)',
+      ).get(req.user.id, recipient.userId, recipient.userId, req.user.id);
+      if (blocked) continue;
+      insertRecipient.run(story.id, recipient.userId, recipient.nonce, recipient.ciphertext);
+    }
+  });
+  insertRecipients(parsed.data.recipients || []);
 
   res.status(201).json({ id: story.id, expiresAt: story.expires_at });
 });
