@@ -17,20 +17,25 @@ const peerView = (u) => ({
   lastSeen: u.last_seen,
 });
 
-const listQuery = `
-  SELECT u.*, c.id AS contact_id, c.status AS contact_status, c.created_at AS contact_created
-  FROM contacts c
-  JOIN users u ON u.id = c.peer_id
-  WHERE c.owner_id = ?
-  ORDER BY c.created_at DESC
-`;
-
 router.get('/', (req, res) => {
-  const rows = db.prepare(listQuery).all(req.user.id);
+  const rows = db.prepare(
+    `SELECT u.*, c.id AS contact_id, c.status AS contact_status,
+            c.created_at AS contact_created, 'outgoing' AS direction
+     FROM contacts c JOIN users u ON u.id = c.peer_id
+     WHERE c.owner_id = ?
+     UNION ALL
+     SELECT u.*, c.id AS contact_id, c.status AS contact_status,
+            c.created_at AS contact_created, 'incoming' AS direction
+     FROM contacts c JOIN users u ON u.id = c.owner_id
+     WHERE c.peer_id = ? AND c.status = 'pending'
+     ORDER BY contact_created DESC`,
+  ).all(req.user.id, req.user.id);
+
   res.json({
     contacts: rows.map((r) => ({
       contactId: r.contact_id,
       status: r.contact_status,
+      direction: r.direction,
       createdAt: r.contact_created,
       peer: peerView(r),
     })),
