@@ -1,0 +1,208 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const db = createClient(SUPABASE_URL, KEY, { auth: { persistSession: false } });
+const enc = new TextEncoder();
+const b64u = (s: string) => btoa(s).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+const un64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS" } });
+const now = () => Date.now();
+const id = () => crypto.randomUUID();
+const fail = (error: string, status = 400) => json({ error }, status);
+async function signToken(sub: string) {
+  const header = b64u(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const payload = b64u(JSON.stringify({ sub, exp: Math.floor(now()/1000) + 30*86400 }));
+  const key = await crypto.subtle.importKey("raw", enc.encode(KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(header + "." + payload)));
+  return header + "." + payload + "." + b64u(String.fromCharCode(...sig));
+}
+async function auth(req: Request) {
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const key = await crypto.subtle.importKey("raw", enc.encode(KEY), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const ok = await crypto.subtle.verify("HMAC", key, un64(parts[2]), enc.encode(parts[0] + "." + parts[1]));
+    const p = JSON.parse(new TextDecoder().decode(un64(parts[1])));
+    if (!ok || !p.sub || p.exp < Math.floor(now()/1000)) return null;
+    const { data } = await db.from("m4zk_users").select("*").eq("id", p.sub).maybeSingle();
+    return data || null;
+  } catch { return null; }
+}
+async function verifyEd25519(message: string, sig: string, pub: string) {
+  try {
+    const key = await crypto.subtle.importKey("raw", un64(pub), { name: "Ed25519" }, false, ["verify"]);
+    return await crypto.subtle.verify({ name: "Ed25519" }, key, un64(sig), enc.encode(message));
+  } catch { return false; }
+}
+const publicUser = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, publicKey:u.public_key, boxPublicKey:u.box_public_key, bio:u.bio, accent:u.accent, lastSeen:u.last_seen, createdAt:u.created_at });
+const peerView = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, boxPublicKey:u.box_public_key, accent:u.accent, bio:u.bio, lastSeen:u.last_seen });
+async function blocked(a: string, b: string) {
+  const { data } = await db.from("m4zk_blocks").select("owner_id").or("and(owner_id.eq."+a+",peer_id.eq."+b+"),and(owner_id.eq."+b+",peer_id.eq."+a+")").limit(1);
+  return !!data?.length;
+}
+async function accepted(a: string, b: string) {
+  const { data } = await db.from("m4zk_contacts").select("id").eq("owner_id",a).eq("peer_id",b).eq("status","accepted").maybeSingle();
+  return !!data;
+}
+async function handle(req: Request) {
+  if (req.method === "OPTIONS") return json({ ok:true });
+  const url = new URL(req.url);
+  const path = url.pathname.replace(/^\/functions\/v1\/m4zk-api/, "").replace(/^\/m4zk-api/, "").replace(/\/$/, "") || "/";
+  const method = req.method;
+  let body: any = {};
+  if (["POST","PATCH","PUT"].includes(method)) { try { body = await req.json(); } catch { return fail("invalid_json"); } }
+
+  if (method === "GET" && path === "/health") return json({ ok:true, service:"m4zk-api" });
+
+  if (method === "POST" && path === "/v1/account/challenge") {
+    if (typeof body.publicKey !== "string" || un64(body.publicKey).length !== 32) return fail("invalid_public_key");
+    const challenge = { id:id(), public_key:body.publicKey, nonce:b64u(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))), expires_at:now()+120000 };
+    const { error } = await db.from("m4zk_challenges").insert(challenge);
+    if (error) return fail("challenge_store_failed",500);
+    return json({ challengeId:challenge.id, nonce:challenge.nonce, expiresAt:challenge.expires_at, message:challenge.id+":"+challenge.nonce });
+  }
+
+  if (method === "POST" && (path === "/v1/account/register" || path === "/v1/account/login")) {
+    const isReg = path.endsWith("register");
+    let challenge: any;
+    if (isReg) {
+      if (!/^[a-z0-9_]{3,24}$/.test(body.handle || "") || typeof body.displayName !== "string" || !body.displayName.trim() || body.displayName.length>48 || typeof body.boxPublicKey!=="string" || un64(body.boxPublicKey).length!==32) return fail("invalid_body");
+      const { data: existing } = await db.from("m4zk_users").select("id").or("handle.eq."+body.handle+",public_key.eq."+body.publicKey).limit(1);
+      if (existing?.length) return fail(existing[0].handle ? "handle_taken" : "key_registered",409);
+      const { data } = await db.from("m4zk_challenges").select("*").eq("id",body.challengeId).eq("public_key",body.publicKey).gt("expires_at",now()).maybeSingle();
+      challenge=data;
+    } else {
+      const { data } = await db.from("m4zk_challenges").select("*").eq("id",body.challengeId).gt("expires_at",now()).maybeSingle();
+      challenge=data;
+    }
+    if (!challenge) return fail("challenge_invalid");
+    const { error: delErr } = await db.from("m4zk_challenges").delete().eq("id",challenge.id);
+    if (delErr) return fail("challenge_invalid");
+    if (!(await verifyEd25519(challenge.id+":"+challenge.nonce,body.signature,challenge.public_key))) return fail("bad_signature",401);
+    let user: any;
+    if (isReg) {
+      user = { id:id(), handle:body.handle, display_name:body.displayName.trim(), public_key:body.publicKey, box_public_key:body.boxPublicKey, bio:"", accent:body.accent || "#FFE600", last_seen:now(), created_at:now() };
+      const { error } = await db.from("m4zk_users").insert(user);
+      if (error) return fail(error.code==="23505" ? "handle_taken" : "register_failed",error.code==="23505"?409:500);
+    } else {
+      const { data } = await db.from("m4zk_users").select("*").eq("public_key",challenge.public_key).maybeSingle();
+      user=data;
+      if (!user) return fail("unknown_user",404);
+      await db.from("m4zk_users").update({ last_seen:now() }).eq("id",user.id);
+    }
+    return json({ token:await signToken(user.id), user:publicUser(user) }, isReg?201:200);
+  }
+
+  const me = await auth(req);
+  if (!me) return fail("unauthorized",401);
+  await db.from("m4zk_users").update({last_seen:now()}).eq("id",me.id);
+
+  if (path === "/v1/account/me" && method === "GET") return json({ user:publicUser(me) });
+  if (path === "/v1/account/me" && method === "PATCH") {
+    const patch:any={}; if (body.displayName!==undefined) patch.display_name=String(body.displayName).slice(0,48); if(body.bio!==undefined) patch.bio=String(body.bio).slice(0,160); if(body.accent!==undefined) patch.accent=String(body.accent).slice(0,9);
+    const {data,error}=await db.from("m4zk_users").update(patch).eq("id",me.id).select("*").single(); if(error)return fail("update_failed",500); return json({user:publicUser(data)});
+  }
+  if (path === "/v1/account/location" && method === "POST") {
+    if(typeof body.lat!=="number"||typeof body.lng!=="number"||Math.abs(body.lat)>90||Math.abs(body.lng)>180)return fail("invalid_body");
+    const {error}=await db.from("m4zk_users").update({lat:Math.round(body.lat*1000)/1000,lng:Math.round(body.lng*1000)/1000,location_at:now()}).eq("id",me.id); return error?fail("location_failed",500):json({ok:true});
+  }
+  if (path === "/v1/account/me" && method === "DELETE") { const {error}=await db.from("m4zk_users").delete().eq("id",me.id); return error?fail("delete_failed",500):json({ok:true}); }
+
+  if (path === "/v1/contacts" && method === "GET") {
+    const {data:out}=await db.from("m4zk_contacts").select("id,status,created_at,peer:m4zk_users!m4zk_contacts_peer_id_fkey(*)").eq("owner_id",me.id).order("created_at",{ascending:false});
+    const {data:incoming}=await db.from("m4zk_contacts").select("id,status,created_at,owner:m4zk_users!m4zk_contacts_owner_id_fkey(*)").eq("peer_id",me.id).eq("status","pending").order("created_at",{ascending:false});
+    const contacts=[...(out||[]).map((c:any)=>({contactId:c.id,status:c.status,direction:"outgoing",createdAt:c.created_at,peer:peerView(c.peer)})),...(incoming||[]).map((c:any)=>({contactId:c.id,status:c.status,direction:"incoming",createdAt:c.created_at,peer:peerView(c.owner)}))];
+    return json({contacts});
+  }
+  if (path === "/v1/contacts" && method === "POST") {
+    const handleName=String(body.handle||"").replace(/^@/,"").toLowerCase(); const {data:peer}=await db.from("m4zk_users").select("*").eq("handle",handleName).maybeSingle();
+    if(!peer)return fail("user_not_found",404); if(peer.id===me.id)return fail("self");
+    const {data:old}=await db.from("m4zk_contacts").select("*").eq("owner_id",me.id).eq("peer_id",peer.id).maybeSingle();
+    if(old)return json({contactId:old.id,status:old.status,peer:peerView(peer)});
+    const contactId=id(); const {data:recip}=await db.from("m4zk_contacts").select("*").eq("owner_id",peer.id).eq("peer_id",me.id).maybeSingle();
+    const status=recip?"accepted":"pending";
+    const {error}=await db.from("m4zk_contacts").insert({id:contactId,owner_id:me.id,peer_id:peer.id,status,created_at:now()}); if(error)return fail("contact_create_failed",500);
+    if(recip) await db.from("m4zk_contacts").update({status:"accepted"}).eq("id",recip.id);
+    return json({contactId,status,peer:peerView(peer)},201);
+  }
+  const acceptMatch=path.match(/^\/v1\/contacts\/([^/]+)\/accept$/);
+  if(acceptMatch&&method==="PATCH"){
+    const {data:row}=await db.from("m4zk_contacts").select("*").eq("id",acceptMatch[1]).eq("peer_id",me.id).maybeSingle(); if(!row)return fail("not_found",404);
+    await db.from("m4zk_contacts").update({status:"accepted"}).eq("id",row.id); await db.from("m4zk_contacts").update({status:"accepted"}).eq("owner_id",me.id).eq("peer_id",row.owner_id); return json({ok:true});
+  }
+  const contactDel=path.match(/^\/v1\/contacts\/([^/]+)$/);
+  if(contactDel&&method==="DELETE"){
+    const {data:row}=await db.from("m4zk_contacts").select("*").eq("id",contactDel[1]).eq("owner_id",me.id).maybeSingle(); if(!row)return fail("not_found",404);
+    await db.from("m4zk_contacts").delete().or("and(owner_id.eq."+me.id+",peer_id.eq."+row.peer_id+"),and(owner_id.eq."+row.peer_id+",peer_id.eq."+me.id+")"); return json({ok:true});
+  }
+
+  if(path==="/v1/messages"&&method==="POST"){
+    const to=String(body.to||""); if(!to||to===me.id)return fail("self");
+    if(!await accepted(me.id,to))return fail("contact_not_accepted",403); if(await blocked(me.id,to))return fail("contact_blocked",403);
+    const {data:recipient}=await db.from("m4zk_users").select("id").eq("id",to).maybeSingle(); if(!recipient)return fail("user_not_found",404);
+    const message={id:id(),sender_id:me.id,recipient_id:to,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:["text","image","voice"].includes(body.kind)?body.kind:"text",created_at:now(),read_at:null};
+    const {error}=await db.from("m4zk_messages").insert(message); if(error)return fail("message_store_failed",500);
+    return json({message:{id:message.id,senderId:me.id,recipientId:to,nonce:message.nonce,ciphertext:message.ciphertext,kind:message.kind,createdAt:message.created_at,readAt:null}},201);
+  }
+  const messageMatch=path.match(/^\/v1\/messages\/([^/]+)$/);
+  if(messageMatch&&method==="GET"){
+    const peer=messageMatch[1]; if(!await accepted(me.id,peer))return fail("contact_not_accepted",403); if(await blocked(me.id,peer))return fail("contact_blocked",403);
+    let q=db.from("m4zk_messages").select("*").or("and(sender_id.eq."+me.id+",recipient_id.eq."+peer+"),and(sender_id.eq."+peer+",recipient_id.eq."+me.id+")").order("created_at",{ascending:false}).limit(200);
+    const before=Number(url.searchParams.get("before")||0); if(before)q=q.lt("created_at",before);
+    const {data,error}=await q; if(error)return fail("messages_failed",500);
+    return json({messages:(data||[]).reverse().map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.nonce,ciphertext:m.ciphertext,kind:m.kind,createdAt:m.created_at,readAt:m.read_at}))});
+  }
+  const readMatch=path.match(/^\/v1\/messages\/([^/]+)\/read$/);
+  if(readMatch&&method==="POST"){await db.from("m4zk_messages").update({read_at:now()}).eq("recipient_id",me.id).eq("sender_id",readMatch[1]).is("read_at",null);return json({ok:true});}
+
+  if(path==="/v1/stories"&&method==="GET"){
+    const {data:mine}=await db.from("m4zk_stories").select("*").eq("user_id",me.id).gt("expires_at",now());
+    const {data:shared}=await db.from("m4zk_story_recipients").select("story_id,nonce,ciphertext").eq("user_id",me.id);
+    const sharedIds=(shared||[]).map((x:any)=>x.story_id);
+    const {data:others}=sharedIds.length?await db.from("m4zk_stories").select("*,author:m4zk_users!m4zk_stories_user_id_fkey(handle,display_name,accent)").in("id",sharedIds).gt("expires_at",now()):{data:[]};
+    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:false};})];
+    return json({stories});
+  }
+  if(path==="/v1/stories"&&method==="POST"){
+    const story={id:id(),user_id:me.id,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:body.kind==="image"?"image":"text",expires_at:now()+86400000,created_at:now()};
+    const {error}=await db.from("m4zk_stories").insert(story); if(error)return fail("story_create_failed",500);
+    const recipients=Array.isArray(body.recipients)?body.recipients.slice(0,500):[];
+    for(const r of recipients){if(r.userId===me.id||!await accepted(me.id,r.userId)||await blocked(me.id,r.userId))continue;await db.from("m4zk_story_recipients").insert({story_id:story.id,user_id:r.userId,nonce:r.nonce,ciphertext:r.ciphertext});}
+    return json({id:story.id,expiresAt:story.expires_at},201);
+  }
+  const viewMatch=path.match(/^\/v1\/stories\/([^/]+)\/view$/);
+  if(viewMatch&&method==="POST"){
+    const {data:s}=await db.from("m4zk_stories").select("*").eq("id",viewMatch[1]).gt("expires_at",now()).maybeSingle();if(!s)return fail("not_found",404);
+    if(s.user_id!==me.id){const {data:r}=await db.from("m4zk_story_recipients").select("story_id").eq("story_id",s.id).eq("user_id",me.id).maybeSingle();if(!r)return fail("story_not_shared",403);await db.from("m4zk_story_views").upsert({story_id:s.id,user_id:me.id,created_at:now()},{onConflict:"story_id,user_id"});}
+    return json({ok:true});
+  }
+  const storyDel=path.match(/^\/v1\/stories\/([^/]+)$/);
+  if(storyDel&&method==="DELETE"){const {data:s}=await db.from("m4zk_stories").select("id,user_id").eq("id",storyDel[1]).maybeSingle();if(!s)return fail("not_found",404);if(s.user_id!==me.id)return fail("forbidden",403);await db.from("m4zk_stories").delete().eq("id",s.id);return json({ok:true});}
+
+  if(path==="/v1/blocks"&&method==="GET"){
+    const {data}=await db.from("m4zk_blocks").select("created_at,peer:m4zk_users!m4zk_blocks_peer_id_fkey(id,handle,display_name,accent)").eq("owner_id",me.id).order("created_at",{ascending:false});
+    return json({blocked:(data||[]).map((b:any)=>({...b.peer,blockedAt:b.created_at}))});
+  }
+  if(path==="/v1/blocks"&&method==="POST"){
+    let peer:any=null;if(body.userId){const {data}=await db.from("m4zk_users").select("*").eq("id",body.userId).maybeSingle();peer=data;}else if(body.handle){const {data}=await db.from("m4zk_users").select("*").eq("handle",String(body.handle).replace(/^@/,"").toLowerCase()).maybeSingle();peer=data;}
+    if(!peer)return fail("user_not_found",404);if(peer.id===me.id)return fail("self");
+    await db.from("m4zk_blocks").upsert({owner_id:me.id,peer_id:peer.id,created_at:now()},{onConflict:"owner_id,peer_id"});return json({blocked:{id:peer.id,handle:peer.handle,displayName:peer.display_name,accent:peer.accent}},201);
+  }
+  const unblock=path.match(/^\/v1\/blocks\/([^/]+)$/);
+  if(unblock&&method==="DELETE"){await db.from("m4zk_blocks").delete().eq("owner_id",me.id).eq("peer_id",unblock[1]);return json({ok:true});}
+
+  if(path==="/v1/nearby"&&method==="GET"){
+    if(me.lat==null||me.lng==null)return json({users:[],reason:"no_location"});
+    const radius=Math.min(Number(url.searchParams.get("radius")||2000),20000);
+    const {data}=await db.from("m4zk_users").select("id,handle,display_name,accent,bio,box_public_key,last_seen,lat,lng").neq("id",me.id).gt("location_at",now()-1800000).not("lat","is",null).not("lng","is",null).limit(300);
+    const rad=(v:number)=>v*Math.PI/180;const dist=(a:any,b:any)=>{const d1=rad(b.lat-a.lat),d2=rad(b.lng-a.lng),h=Math.sin(d1/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(d2/2)**2;return 12742000*Math.asin(Math.sqrt(h));};
+    const users=(data||[]).map((u:any)=>({id:u.id,handle:u.handle,displayName:u.display_name,accent:u.accent,bio:u.bio,boxPublicKey:u.box_public_key,lastSeen:u.last_seen,distance:Math.round(dist(me,u))})).filter((u:any)=>u.distance<=radius).sort((a:any,b:any)=>a.distance-b.distance).slice(0,100);
+    return json({users,radius});
+  }
+  return fail("not_found",404);
+}
+Deno.serve(async (req: Request) => {
+  try { return await handle(req); } catch (e) { console.error("m4zk-api error",e); return fail("internal_error",500); }
+});
