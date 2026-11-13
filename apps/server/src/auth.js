@@ -1,6 +1,9 @@
 import jwt from 'jsonwebtoken';
 import { db } from './db.js';
 
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET must be configured in production.');
+}
 const SECRET = process.env.JWT_SECRET || 'dev-insecure-secret';
 const TTL = '30d';
 
