@@ -1,6 +1,6 @@
 import { getToken } from './identity';
 
-const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\\/+$/, '');
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
 export const API_URL = configuredApiUrl ?? '';
 
 export function assertApiConfigured(): void {
