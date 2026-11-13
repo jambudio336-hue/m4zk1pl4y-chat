@@ -1,7 +1,13 @@
 import { getToken } from './identity';
 
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:4000';
+const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\\/+$/, '');
+export const API_URL = configuredApiUrl ?? '';
+
+export function assertApiConfigured(): void {
+  if (!API_URL) {
+    throw new Error('server_not_configured: API production URL belum diatur.');
+  }
+}
 
 export type Contact = {
   contactId: string;
@@ -38,6 +44,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  assertApiConfigured();
   const token = getToken();
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
