@@ -1,11 +1,11 @@
 import { io, type Socket } from 'socket.io-client';
-import { API_URL, assertApiConfigured } from './api';
+import { API_URL } from './api';
 import { getToken } from './identity';
 
 let socket: Socket | null = null;
 
-export function connectSocket(): Socket {
-  assertApiConfigured();
+export function connectSocket(): Socket | null {
+  if (!API_URL) return null;
   const token = getToken();
   if (socket?.connected) return socket;
 
