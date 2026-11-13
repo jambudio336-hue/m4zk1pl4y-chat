@@ -107,10 +107,15 @@ export const api = {
 
   stories: () => request<{ stories: any[] }>('/v1/stories'),
 
-  postStory: (nonce: string, ciphertext: string, kind = 'text') =>
+  postStory: (
+    nonce: string,
+    ciphertext: string,
+    recipients: { userId: string; nonce: string; ciphertext: string }[],
+    kind = 'text',
+  ) =>
     request<{ id: string }>('/v1/stories', {
       method: 'POST',
-      body: JSON.stringify({ nonce, ciphertext, kind }),
+      body: JSON.stringify({ nonce, ciphertext, recipients, kind }),
     }),
 
   viewStory: (storyId: string) =>
