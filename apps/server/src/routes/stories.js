@@ -107,8 +107,12 @@ router.post('/', rateLimit({ max: 30 }), (req, res) => {
 
 router.post('/:storyId/view', (req, res) => {
   const story = db.prepare('SELECT * FROM stories WHERE id = ?').get(req.params.storyId);
-  if (!story) return res.status(404).json({ error: 'not_found' });
+  if (!story || story.expires_at <= now()) return res.status(404).json({ error: 'not_found' });
   if (story.user_id === req.user.id) return res.json({ ok: true });
+  const allowed = db.prepare(
+    "SELECT 1 FROM story_recipients WHERE story_id = ? AND user_id = ?",
+  ).get(story.id, req.user.id);
+  if (!allowed) return res.status(403).json({ error: 'story_not_shared' });
 
   db.prepare(
     'INSERT OR IGNORE INTO story_views (story_id, user_id, created_at) VALUES (?, ?, ?)',
