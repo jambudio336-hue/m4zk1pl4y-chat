@@ -1,0 +1,26 @@
+-- M4zk1pL4y Chat backend schema. All objects are namespaced to avoid Agent Office tables.
+create table if not exists public.m4zk_users (id text primary key, handle text not null unique, display_name text not null, public_key text not null unique, box_public_key text not null, bio text not null default '', accent text not null default '#FFE600', lat double precision, lng double precision, location_at bigint, last_seen bigint not null, created_at bigint not null);
+create table if not exists public.m4zk_challenges (id text primary key, public_key text not null, nonce text not null, expires_at bigint not null);
+create table if not exists public.m4zk_contacts (id text primary key, owner_id text not null references public.m4zk_users(id) on delete cascade, peer_id text not null references public.m4zk_users(id) on delete cascade, status text not null default 'pending' check (status in ('pending','accepted')), created_at bigint not null, unique(owner_id,peer_id));
+create table if not exists public.m4zk_messages (id text primary key, sender_id text not null references public.m4zk_users(id) on delete cascade, recipient_id text not null references public.m4zk_users(id) on delete cascade, nonce text not null, ciphertext text not null, kind text not null default 'text' check (kind in ('text','image','voice')), created_at bigint not null, read_at bigint);
+create table if not exists public.m4zk_stories (id text primary key, user_id text not null references public.m4zk_users(id) on delete cascade, nonce text not null, ciphertext text not null, kind text not null default 'text' check (kind in ('text','image')), expires_at bigint not null, created_at bigint not null);
+create table if not exists public.m4zk_story_views (story_id text not null references public.m4zk_stories(id) on delete cascade, user_id text not null references public.m4zk_users(id) on delete cascade, created_at bigint not null, primary key(story_id,user_id));
+create table if not exists public.m4zk_story_recipients (story_id text not null references public.m4zk_stories(id) on delete cascade, user_id text not null references public.m4zk_users(id) on delete cascade, nonce text not null, ciphertext text not null, primary key(story_id,user_id));
+create table if not exists public.m4zk_blocks (owner_id text not null references public.m4zk_users(id) on delete cascade, peer_id text not null references public.m4zk_users(id) on delete cascade, created_at bigint not null, primary key(owner_id,peer_id));
+create table if not exists public.m4zk_calls (id text primary key, caller_id text not null references public.m4zk_users(id) on delete cascade, callee_id text not null references public.m4zk_users(id) on delete cascade, mode text not null default 'audio', status text not null default 'ringing', created_at bigint not null);
+create index if not exists m4zk_messages_pair_idx on public.m4zk_messages(sender_id,recipient_id,created_at);
+create index if not exists m4zk_messages_recipient_idx on public.m4zk_messages(recipient_id,created_at);
+create index if not exists m4zk_contacts_owner_idx on public.m4zk_contacts(owner_id,status);
+create index if not exists m4zk_stories_expiry_idx on public.m4zk_stories(expires_at);
+create index if not exists m4zk_blocks_owner_idx on public.m4zk_blocks(owner_id);
+alter table public.m4zk_users enable row level security;
+alter table public.m4zk_challenges enable row level security;
+alter table public.m4zk_contacts enable row level security;
+alter table public.m4zk_messages enable row level security;
+alter table public.m4zk_stories enable row level security;
+alter table public.m4zk_story_views enable row level security;
+alter table public.m4zk_story_recipients enable row level security;
+alter table public.m4zk_blocks enable row level security;
+alter table public.m4zk_calls enable row level security;
+revoke all on public.m4zk_users, public.m4zk_challenges, public.m4zk_contacts, public.m4zk_messages, public.m4zk_stories, public.m4zk_story_views, public.m4zk_story_recipients, public.m4zk_blocks, public.m4zk_calls from anon, authenticated;
+grant all on public.m4zk_users, public.m4zk_challenges, public.m4zk_contacts, public.m4zk_messages, public.m4zk_stories, public.m4zk_story_views, public.m4zk_story_recipients, public.m4zk_blocks, public.m4zk_calls to service_role;
