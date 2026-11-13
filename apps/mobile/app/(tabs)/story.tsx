@@ -65,7 +65,7 @@ export default function Stories() {
         .contacts()
         .then(({ contacts }) => {
           const map: Record<string, string> = {};
-          contacts.forEach((c) => {
+          contacts.filter((c) => c.status === 'accepted').forEach((c) => {
             map[c.peer.id] = c.peer.boxPublicKey;
           });
           setKeyMap(map);
@@ -78,9 +78,11 @@ export default function Stories() {
     const text = draft.trim();
     if (!text) return;
     const { nonce, ciphertext } = seal(text, session!.user.boxPublicKey);
-
-    // Seal one copy per accepted contact + one for self.
-    await api.postStory(nonce, ciphertext);
+    const recipients = Object.entries(keyMap).map(([userId, publicKey]) => ({
+      userId,
+      ...seal(text, publicKey),
+    }));
+    await api.postStory(nonce, ciphertext, recipients);
     setDraft('');
     setComposing(false);
     load().catch(() => {});
