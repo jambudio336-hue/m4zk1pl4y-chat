@@ -49,11 +49,10 @@ jobs:
           API_URL_VAR: ${{ vars.M4ZK_API_URL }}
         run: |
           API_URL="${API_URL_INPUT:-$API_URL_VAR}"
-          if [ -n "$API_URL" ]; then
-            case "$API_URL" in https://*) ;; *) echo "API URL must use HTTPS"; exit 1 ;; esac
-          else
-            echo "::warning::M4ZK_API_URL is not configured; online features require a deployed API."
+          if [ -z "$API_URL" ]; then
+            API_URL="https://fscqhvqzecqjkllwiuga.supabase.co/functions/v1/m4zk-api"
           fi
+          case "$API_URL" in https://*) ;; *) echo "API URL must use HTTPS"; exit 1 ;; esac
           echo "EXPO_PUBLIC_API_URL=$API_URL" >> "$GITHUB_ENV"
       - name: Generate Android project
         working-directory: apps/mobile
