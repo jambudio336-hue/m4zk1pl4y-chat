@@ -69,6 +69,14 @@ CREATE TABLE IF NOT EXISTS story_views (
   PRIMARY KEY (story_id, user_id)
 );
 
+CREATE TABLE IF NOT EXISTS story_recipients (
+  story_id   TEXT NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  nonce      TEXT NOT NULL,
+  ciphertext TEXT NOT NULL,
+  PRIMARY KEY (story_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS blocks (
   owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   peer_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
