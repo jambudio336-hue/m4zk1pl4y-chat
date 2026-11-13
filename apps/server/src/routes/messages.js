@@ -51,6 +51,14 @@ router.post('/', rateLimit({ max: 240 }), (req, res) => {
   if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(to)) {
     return res.status(404).json({ error: 'user_not_found' });
   }
+  const connected = db.prepare(
+    "SELECT 1 FROM contacts WHERE owner_id = ? AND peer_id = ? AND status = 'accepted'",
+  ).get(req.user.id, to);
+  if (!connected) return res.status(403).json({ error: 'contact_not_accepted' });
+  const blocked = db.prepare(
+    'SELECT 1 FROM blocks WHERE (owner_id = ? AND peer_id = ?) OR (owner_id = ? AND peer_id = ?)',
+  ).get(req.user.id, to, to, req.user.id);
+  if (blocked) return res.status(403).json({ error: 'contact_blocked' });
 if (db.prepare('SELECT 1 FROM blocks WHERE owner_id = ? AND peer_id = ?').get(to, req.user.id)) {
     return res.status(403).json({ error: 'blocked_by_recipient' });
   }
