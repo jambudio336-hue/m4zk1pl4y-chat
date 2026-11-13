@@ -17,7 +17,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (session) {
       const socket = connectSocket();
-      return () => socket.disconnect();
+      return () => socket?.disconnect();
     }
     disconnectSocket();
     return undefined;
