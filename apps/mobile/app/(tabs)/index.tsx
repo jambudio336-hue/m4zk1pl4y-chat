@@ -52,8 +52,12 @@ export default function Chats() {
     if (!socket) return;
     const handler = () => load().catch(() => {});
     socket.on('message:new', handler);
+    socket.on('contact:request', handler);
+    socket.on('contact:accepted', handler);
     return () => {
       socket.off('message:new', handler);
+      socket.off('contact:request', handler);
+      socket.off('contact:accepted', handler);
     };
   }, [load]);
 
