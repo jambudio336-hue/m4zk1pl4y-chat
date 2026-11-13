@@ -72,7 +72,7 @@ export default function Chat() {
 
     const onNew = (wire: WireMessage) => {
       if (wire.senderId !== String(id) && wire.recipientId !== String(id)) return;
-      setBubbles((prev) => [...prev, decode(wire, peerBoxKey)]);
+      setBubbles((prev) => prev.some((item) => item.id === wire.id) ? prev : [...prev, decode(wire, peerBoxKey)]);
       api.markRead(String(id)).catch(() => {});
     };
     const onTyping = (payload: { from: string; active: boolean }) => {
@@ -100,7 +100,7 @@ export default function Chat() {
     const { nonce, ciphertext } = seal(body, peerBoxKey);
     try {
       const { message } = await api.sendMessage(String(id), nonce, ciphertext);
-      setBubbles((prev) => [...prev, decode(message, peerBoxKey)]);
+      setBubbles((prev) => prev.some((item) => item.id === message.id) ? prev : [...prev, decode(message, peerBoxKey)]);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     } catch {
       setDraft(body);
