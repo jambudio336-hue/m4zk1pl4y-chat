@@ -19,6 +19,15 @@ const shape = (m) => ({
 });
 
 router.get('/:peerId', (req, res) => {
+  const connected = db.prepare(
+    "SELECT 1 FROM contacts WHERE owner_id = ? AND peer_id = ? AND status = 'accepted'",
+  ).get(req.user.id, req.params.peerId);
+  if (!connected) return res.status(403).json({ error: 'contact_not_accepted' });
+  const blocked = db.prepare(
+    'SELECT 1 FROM blocks WHERE (owner_id = ? AND peer_id = ?) OR (owner_id = ? AND peer_id = ?)',
+  ).get(req.user.id, req.params.peerId, req.params.peerId, req.user.id);
+  if (blocked) return res.status(403).json({ error: 'contact_blocked' });
+
   const limit = Math.min(Number(req.query.limit || 100), 200);
   const before = Number(req.query.before || Date.now() + 1);
 
