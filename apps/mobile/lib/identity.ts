@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 import nacl from 'tweetnacl';
 import * as SecureStore from 'expo-secure-store';
 import { toByteArray, fromByteArray } from 'base64-js';
-import { API_URL } from './api';
+import { API_URL, assertApiConfigured } from './api';
 
 const KEY_SIGN_SECRET = 'mzk.sign.secret';
 const KEY_BOX_SECRET = 'mzk.box.secret';
@@ -101,6 +101,7 @@ async function loadIdentity(): Promise<Identity | null> {
 }
 
 async function requestChallenge(publicKeyB64: string) {
+  assertApiConfigured();
   const res = await fetch(`${API_URL}/v1/account/challenge`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
