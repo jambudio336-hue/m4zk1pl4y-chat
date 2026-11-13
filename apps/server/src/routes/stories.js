@@ -24,13 +24,15 @@ router.get('/', (req, res) => {
          AND (
            s.user_id = ?
            OR EXISTS (
-             SELECT 1 FROM contacts c
-             WHERE c.owner_id = ? AND c.peer_id = s.user_id AND c.status = 'accepted'
+             SELECT 1
+             FROM story_recipients sr2
+             JOIN contacts c ON c.owner_id = ? AND c.peer_id = s.user_id AND c.status = 'accepted'
+             WHERE sr2.story_id = s.id AND sr2.user_id = ?
            )
          )
        ORDER BY s.created_at DESC`,
     )
-    .all(req.user.id, req.user.id, now(), req.user.id, req.user.id);
+    .all(req.user.id, req.user.id, now(), req.user.id, req.user.id, req.user.id);
 
   res.json({
     stories: rows.map((s) => ({
