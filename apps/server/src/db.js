@@ -89,8 +89,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_pair ON messages (sender_id, recipient_i
 CREATE INDEX IF NOT EXISTS idx_messages_recipient ON messages (recipient_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts (owner_id, status);
 CREATE INDEX IF NOT EXISTS idx_stories_expiry ON stories (expires_at);
+CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks (owner_id);
 `);
 
 export const now = () => Date.now();
-
-CREATE INDEX IF NOT EXISTS idx_blocks_owner ON blocks (owner_id);
