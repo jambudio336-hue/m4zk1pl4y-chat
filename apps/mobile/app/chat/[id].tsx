@@ -92,7 +92,7 @@ export default function Chat() {
       socket.off('message:read', onRead);
       socket.off('connect', onReconnect);
     };
-  }, [id, peerBoxKey, decode]);
+  }, [id, peerBoxKey, decode, load]);
 
   async function send() {
     const body = draft.trim();
