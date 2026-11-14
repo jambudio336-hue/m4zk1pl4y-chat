@@ -161,3 +161,31 @@ Issues and pull requests are welcome. Please include device details, Android ver
 ## License
 
 See [LICENCE](LICENCE).
+
+
+## Phase 1 — Foundation
+
+The foundation migration adds server-side message ordering and idempotency, device sessions, per-minute rate-limit storage, private media/story buckets, and the supporting metadata tables. The API issues project-signed JWTs with the `authenticated` role; access tokens are limited to seven days and realtime tokens to one hour.
+
+### Required Supabase secret
+
+Set `SUPABASE_JWT_SECRET` in **Supabase Dashboard → Edge Functions → Secrets** to the project's existing JWT signing secret (the value shown in the project's API/JWT settings). This must be the same signing secret used by Supabase Realtime and Storage. Do not generate a different value, commit it, or expose it through an `EXPO_PUBLIC_*` variable.
+
+The variable-name template is in `supabase/functions/m4zk-api/.env.example`. The API's authentication and account registration/login will return an internal error until this secret is configured.
+
+### Phase 1 API additions
+
+- `POST /v1/account/realtime-token` — issue a one-hour JWT for Realtime.
+- `GET /v1/account/sessions` — list active device sessions.
+- `DELETE /v1/account/sessions/:id` — revoke one of the current user's sessions.
+- `POST /v1/messages` accepts a UUID `clientMsgId`; duplicate submissions return the original message.
+- Message history includes `serverSeq` and is ordered by server sequence, not client device time.
+
+Private buckets `m4zk-media` and `m4zk-stories` are owner-folder restricted. Existing public avatar bucket behavior is unchanged in this phase.
+
+### Local verification
+
+```bash
+npx tsc --noEmit -p apps/mobile/tsconfig.json
+deno check supabase/functions/m4zk-api/index.ts
+```
