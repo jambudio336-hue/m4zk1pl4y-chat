@@ -13,6 +13,7 @@ type NearUser = {
   displayName: string;
   accent: string;
   bio: string;
+  avatarUrl?: string | null;
   distance: number;
 };
 
@@ -79,7 +80,7 @@ export default function Nearby() {
         }
         renderItem={({ item }) => (
           <Pressable style={styles.row} onPress={() => connect(item)}>
-            <Avatar name={item.displayName} accent={item.accent} />
+            <Avatar name={item.displayName} accent={item.accent} imageUrl={item.avatarUrl} />
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{item.displayName}</Text>
               <Text style={styles.meta}>
