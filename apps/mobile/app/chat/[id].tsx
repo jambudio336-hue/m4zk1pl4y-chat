@@ -162,6 +162,7 @@ export default function Chat() {
         <View style={styles.selectionBar}>
           <Text style={styles.selectionCount}>{selectedIds.length} pesan dipilih</Text>
           <Pressable onPress={() => setSelectedIds([])}><Text style={styles.selectionCancel}>Batal</Text></Pressable>
+          <Pressable onPress={() => setSelectedIds(bubbles.map((bubble) => bubble.id))}><Text style={styles.selectionCancel}>Pilih semua</Text></Pressable>
           <Pressable onPress={() => deleteSelected('me')}><Text style={styles.selectionAction}>Hapus saya</Text></Pressable>
           {bubbles.filter((bubble) => selectedIds.includes(bubble.id)).every((bubble) => bubble.mine) ? (
             <Pressable onPress={() => deleteSelected('everyone')}><Text style={styles.selectionDanger}>Hapus semua</Text></Pressable>
@@ -176,7 +177,7 @@ export default function Chat() {
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
           <Pressable
-            style={[styles.bubble, item.mine ? styles.mine : styles.theirs]}
+            style={[styles.bubble, item.mine ? styles.mine : styles.theirs, selectedIds.includes(item.id) && styles.selectedBubble]}
             onLongPress={() => setSelectedIds((prev) => prev.includes(item.id) ? prev : [...prev, item.id])}
             onPress={() => {
               if (selectedIds.length) setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((value) => value !== item.id) : [...prev, item.id]);
@@ -269,6 +270,7 @@ export default function Chat() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   selectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.panel, borderBottomWidth: 1, borderBottomColor: colors.lineDim },
+  selectedBubble: { borderColor: colors.accent, borderWidth: 2 },
   selectionCount: { color: colors.text, fontSize: 12, fontWeight: '800' },
   selectionCancel: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
   selectionAction: { color: colors.accent, fontSize: 12, fontWeight: '700' },
