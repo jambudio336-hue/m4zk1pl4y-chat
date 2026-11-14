@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
 import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { Field } from '../../components/Field';
 import { BrutalButton } from '../../components/BrutalButton';
 import { Avatar } from '../../components/Avatar';
@@ -14,6 +15,7 @@ export default function Settings() {
   const [bio, setBio] = useState(session?.user.bio ?? '');
   const [accent, setAccent] = useState(session?.user.accent ?? ACCENTS[0]);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   if (!session) return null;
 
@@ -28,6 +30,27 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function chooseAvatar() {
+    if (uploadingAvatar) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) { Alert.alert('IZIN GALERI','Izinkan akses galeri untuk memilih foto profil.'); return; }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes:['images'], allowsEditing:true, aspect:[1,1], quality:0.68, base64:true });
+      if (result.canceled || !result.assets[0]?.base64) return;
+      setUploadingAvatar(true);
+      const asset=result.assets[0];
+      const response=await api.uploadAvatar(asset.base64,asset.mimeType||'image/jpeg');
+      updateUser({ ...session!.user, ...response.user });
+      Alert.alert('FOTO DIPERBARUI','Foto profil sekarang tersimpan dan bisa dilihat kontakmu.');
+    } catch (error:any) { Alert.alert('UPLOAD GAGAL',error?.message||'Periksa koneksi lalu coba lagi.'); }
+    finally { setUploadingAvatar(false); }
+  }
+
+  async function removeAvatar() {
+    try { const response=await api.deleteAvatar(); updateUser({ ...session!.user, ...response.user }); }
+    catch (error:any) { Alert.alert('GAGAL',error?.message||'Foto profil tidak bisa dihapus.'); }
   }
 
   async function logout() {
@@ -60,10 +83,12 @@ export default function Settings() {
   return (
     <ScrollView style={styles.root} contentContainerStyle={{ padding: space.lg, paddingBottom: space.xl }}>
       <View style={styles.identity}>
-        <Avatar name={name || 'MZ'} accent={accent} size={64} ring />
+        <Pressable onPress={chooseAvatar} disabled={uploadingAvatar}><Avatar name={name || 'MZ'} accent={accent} size={72} ring imageUrl={session.user.avatarUrl} /></Pressable>
         <View>
           <Text style={styles.handle}>{session.user.handle}</Text>
           <Text style={styles.sub}>ID lo — jangan share ke orang random</Text>
+          <Pressable onPress={chooseAvatar} disabled={uploadingAvatar}><Text style={styles.avatarAction}>{uploadingAvatar?'MENGUNGGAH FOTO...':'GANTI FOTO PROFIL'}</Text></Pressable>
+          {session.user.avatarUrl ? <Pressable onPress={removeAvatar}><Text style={styles.removeAvatar}>HAPUS FOTO</Text></Pressable> : null}
         </View>
       </View>
 
@@ -116,6 +141,8 @@ const styles = StyleSheet.create({
     marginBottom: space.md,
   },
   handle: { ...type.display, fontSize: 17, color: colors.accent },
+  avatarAction: { color: colors.accent, fontFamily: 'monospace', fontSize: 9, fontWeight: '800', marginTop: 7 },
+  removeAvatar: { color: '#FF786B', fontFamily: 'monospace', fontSize: 9, marginTop: 5 },
   sub: { color: colors.textDim, fontFamily: 'monospace', fontSize: 10, marginTop: 2 },
   actions: { flexDirection: 'row', gap: space.sm, marginBottom: space.lg },
   label: { ...type.label, color: colors.textDim, marginBottom: space.sm },
