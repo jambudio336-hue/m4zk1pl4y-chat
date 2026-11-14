@@ -1,38 +1,38 @@
 export const colors = {
-  bg: '#0A0A0A',
-  panel: '#151515',
-  panelAlt: '#1E1E1E',
-  line: '#F2F2F2',
-  lineDim: '#3A3A3A',
-  text: '#F5F5F5',
-  textDim: '#8A8A8A',
-  accent: '#FFE600',
-  danger: '#FF3D00',
-  ok: '#00E676',
+  bg: '#0B141A',
+  panel: '#111B21',
+  panelAlt: '#202C33',
+  line: '#2A3942',
+  lineDim: '#26343B',
+  text: '#E9EDEF',
+  textDim: '#8696A0',
+  accent: '#00A884',
+  danger: '#F15C6D',
+  ok: '#25D366',
 };
 
-export const space = { xs: 4, sm: 8, md: 14, lg: 22, xl: 34 };
+export const space = { xs: 4, sm: 8, md: 14, lg: 20, xl: 30 };
 
-export const radius = { sm: 4, md: 8 };
+export const radius = { sm: 10, md: 16 };
 
 export const border = {
-  thick: { borderWidth: 3, borderColor: colors.line },
-  thin: { borderWidth: 2, borderColor: colors.lineDim },
+  thick: { borderWidth: 1, borderColor: colors.line },
+  thin: { borderWidth: 1, borderColor: colors.lineDim },
 };
 
 export const type = {
   mono: 'monospace',
-  display: { fontFamily: 'monospace', fontWeight: '900' as const, letterSpacing: -0.5 },
+  display: { fontFamily: 'System', fontWeight: '800' as const, letterSpacing: -0.6 },
   label: {
-    fontFamily: 'monospace',
+    fontFamily: 'System',
     fontWeight: '700' as const,
     fontSize: 11,
-    letterSpacing: 1.6,
+    letterSpacing: 0.4,
     textTransform: 'uppercase' as const,
   },
 };
 
-export const ACCENTS = ['#FFE600', '#FF3D00', '#00E676', '#00D8FF', '#C77DFF', '#FF7AB6'];
+export const ACCENTS = ['#00A884', '#25D366', '#53BDEB', '#7C83FD', '#D98BEA', '#F5A623'];
 
 export function pickAccent(seed: string): string {
   let h = 0;
