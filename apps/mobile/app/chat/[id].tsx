@@ -6,6 +6,7 @@ import {
   FlatList,
   TextInput,
   Pressable,
+  Modal,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -16,7 +17,8 @@ import { getSocket } from '../../lib/socket';
 import { useSession, open, seal } from '../../lib/identity';
 import { colors, space, type, border, radius } from '../../lib/theme';
 
-type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string };
+type Reaction = { emoji: string; count: number; mine: boolean };
+type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string; reactions: Reaction[]; deliveredAt: number | null; readAt: number | null };
 
 export default function Chat() {
   const { id, handle } = useLocalSearchParams<{ id: string; handle?: string }>();
@@ -26,6 +28,8 @@ export default function Chat() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const listRef = useRef<FlatList<Bubble>>(null);
 
   useEffect(() => {
@@ -36,9 +40,12 @@ export default function Chat() {
     (wire: WireMessage, key: string): Bubble => ({
       id: wire.id,
       mine: wire.senderId === session?.user.id,
-      body: open(wire.ciphertext, wire.nonce, key) ?? '[tidak bisa didekripsi]',
+      body: wire.kind === 'deleted' ? 'Pesan telah dihapus' : (open(wire.ciphertext, wire.nonce, key) ?? '[tidak bisa didekripsi]'),
       at: wire.createdAt,
       kind: wire.kind,
+      reactions: wire.reactions ?? [],
+      deliveredAt: wire.deliveredAt ?? null,
+      readAt: wire.readAt ?? null,
     }),
     [session?.user.id],
   );
@@ -99,6 +106,38 @@ export default function Chat() {
     };
   }, [id, peerBoxKey, decode, load]);
 
+  async function deleteTarget(mode: 'me' | 'everyone') {
+    const target = reactionTarget;
+    setReactionTarget(null);
+    if (!target) return;
+    try {
+      await api.deleteMessage(target, mode);
+      setBubbles((prev) => mode === 'me'
+        ? prev.filter((bubble) => bubble.id !== target)
+        : prev.map((bubble) => bubble.id === target
+          ? { ...bubble, body: 'Pesan telah dihapus', kind: 'deleted', reactions: [] }
+          : bubble));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }
+
+  async function deleteSelected(mode: 'me' | 'everyone') {
+    const targets = bubbles.filter((bubble) => selectedIds.includes(bubble.id) && (mode === 'me' || bubble.mine));
+    if (!targets.length) return;
+    const settled = await Promise.allSettled(targets.map((bubble) => api.deleteMessage(bubble.id, mode)));
+    const succeeded = new Set(targets.filter((_, index) => settled[index].status === 'fulfilled').map((bubble) => bubble.id));
+    setBubbles((prev) => mode === 'me'
+      ? prev.filter((bubble) => !succeeded.has(bubble.id))
+      : prev.map((bubble) => succeeded.has(bubble.id)
+        ? { ...bubble, body: 'Pesan telah dihapus', kind: 'deleted', reactions: [] }
+        : bubble));
+    setSelectedIds([]);
+    if (succeeded.size) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (succeeded.size !== targets.length) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  }
+
   async function send() {
     const body = draft.trim();
     if (!body || !peerBoxKey) return;
@@ -121,6 +160,17 @@ export default function Chat() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
+      {selectedIds.length ? (
+        <View style={styles.selectionBar}>
+          <Text style={styles.selectionCount}>{selectedIds.length} pesan dipilih</Text>
+          <Pressable onPress={() => setSelectedIds([])}><Text style={styles.selectionCancel}>Batal</Text></Pressable>
+          <Pressable onPress={() => setSelectedIds(bubbles.map((bubble) => bubble.id))}><Text style={styles.selectionCancel}>Pilih semua</Text></Pressable>
+          <Pressable onPress={() => deleteSelected('me')}><Text style={styles.selectionAction}>Hapus saya</Text></Pressable>
+          {bubbles.filter((bubble) => selectedIds.includes(bubble.id)).every((bubble) => bubble.mine) ? (
+            <Pressable onPress={() => deleteSelected('everyone')}><Text style={styles.selectionDanger}>Hapus semua</Text></Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <FlatList
         ref={listRef}
         data={bubbles}
@@ -128,14 +178,69 @@ export default function Chat() {
         contentContainerStyle={styles.list}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
-          <View style={[styles.bubble, item.mine ? styles.mine : styles.theirs]}>
+          <Pressable
+            style={[styles.bubble, item.mine ? styles.mine : styles.theirs, selectedIds.includes(item.id) && styles.selectedBubble]}
+            onLongPress={() => setSelectedIds((prev) => prev.includes(item.id) ? prev : [...prev, item.id])}
+            onPress={() => {
+              if (selectedIds.length) setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((value) => value !== item.id) : [...prev, item.id]);
+            }}
+            delayLongPress={280}
+          >
             <Text style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
-            <Text style={[styles.stamp, item.mine && styles.stampMine]}>
-              {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
+            <View style={styles.stampLine}>
+              <Text style={[styles.stamp, item.mine && styles.stampMine]}>
+                {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              {item.mine ? (
+                <Text style={[styles.receipt, item.readAt ? styles.receiptRead : item.deliveredAt ? styles.receiptDelivered : null]}>
+                  {item.readAt ? '✓✓' : item.deliveredAt ? '✓✓' : '✓'}
+                </Text>
+              ) : null}
+            </View>
+            {item.reactions.length ? (
+              <View style={styles.reactionLine}>
+                {item.reactions.map((reaction) => (
+                  <Text key={reaction.emoji} style={[styles.reactionChip, reaction.mine && styles.ownReaction]}>
+                    {reaction.emoji} {reaction.count}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </Pressable>
         )}
       />
+
+      <Modal visible={!!reactionTarget} transparent animationType="fade" onRequestClose={() => setReactionTarget(null)}>
+        <Pressable style={styles.reactionOverlay} onPress={() => setReactionTarget(null)}>
+          <View style={styles.reactionPicker}>
+            {['👍','❤️','😂','😮','😢','🙏','👌','🔥'].map((emoji) => (
+              <Pressable key={emoji} style={styles.reactionOption} onPress={async () => {
+                const target = reactionTarget;
+                setReactionTarget(null);
+                if (!target) return;
+                try {
+                  const result = await api.reactToMessage(target, emoji);
+                  setBubbles((prev) => prev.map((bubble) => bubble.id === target ? { ...bubble, reactions: result.reactions } : bubble));
+                } catch {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                }
+              }}>
+                <Text style={styles.reactionEmoji}>{emoji}</Text>
+              </Pressable>
+            ))}
+            <View style={styles.deleteActions}>
+              <Pressable style={styles.deleteAction} onPress={() => deleteTarget('me')}>
+                <Text style={styles.deleteActionText}>Hapus untuk saya</Text>
+              </Pressable>
+              {bubbles.find((bubble) => bubble.id === reactionTarget)?.mine ? (
+                <Pressable style={styles.deleteAction} onPress={() => deleteTarget('everyone')}>
+                  <Text style={styles.deleteActionDanger}>Hapus untuk semua orang</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
 
       {peerTyping ? <Text style={styles.typing}>sedang menulis...</Text> : null}
 
@@ -173,6 +278,12 @@ export default function Chat() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  selectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.panel, borderBottomWidth: 1, borderBottomColor: colors.lineDim },
+  selectedBubble: { borderColor: colors.accent, borderWidth: 2 },
+  selectionCount: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  selectionCancel: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
+  selectionAction: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  selectionDanger: { color: colors.danger, fontSize: 12, fontWeight: '700' },
   list: { padding: space.md, gap: space.sm },
   bubble: {
     maxWidth: '84%',
@@ -185,8 +296,23 @@ const styles = StyleSheet.create({
   theirs: { alignSelf: 'flex-start', backgroundColor: colors.panelAlt, borderColor: colors.lineDim, borderBottomLeftRadius: 5 },
   body: { color: colors.text, fontFamily: 'System', fontSize: 14, lineHeight: 21 },
   bodyMine: { color: '#E9EDEF' },
-  stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, marginTop: 4, textAlign: 'right' },
+  stampLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
+  stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, textAlign: 'right' },
+  receipt: { color: '#A9DCCF', fontSize: 11, fontWeight: '900' },
+  receiptDelivered: { color: '#B9E8DD' },
+  receiptRead: { color: '#FF5268' },
   stampMine: { color: '#A9DCCF' },
+  reactionLine: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },
+  reactionChip: { color: colors.text, backgroundColor: '#263542', borderRadius: 12, overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2, fontSize: 11 },
+  ownReaction: { borderWidth: 1, borderColor: colors.accent },
+  reactionOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  reactionPicker: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 18, padding: 10, maxWidth: 300 },
+  reactionOption: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' },
+  reactionEmoji: { fontSize: 29 },
+  deleteActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 14 },
+  deleteAction: { paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.panelAlt },
+  deleteActionText: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  deleteActionDanger: { color: colors.danger, fontSize: 12, fontWeight: '700' },
   typing: {
     ...type.label,
     color: colors.textDim,

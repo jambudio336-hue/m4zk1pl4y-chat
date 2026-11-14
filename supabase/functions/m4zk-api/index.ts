@@ -254,11 +254,76 @@ async function handle(req: Request) {
   const messageMatch=path.match(/^\/v1\/messages\/([^/]+)$/);
   if(messageMatch&&method==="GET"){
     const peer=messageMatch[1]; if(!await accepted(me.id,peer))return fail("contact_not_accepted",403); if(await blocked(me.id,peer))return fail("contact_blocked",403);
+    const {error:deliveryError}=await db.from("m4zk_messages").update({delivered_at:now()}).eq("recipient_id",me.id).eq("sender_id",peer).is("delivered_at",null);
+    if(deliveryError)return fail("delivery_receipt_failed",500);
     let q=db.from("m4zk_messages").select("*").or("and(sender_id.eq."+me.id+",recipient_id.eq."+peer+"),and(sender_id.eq."+peer+",recipient_id.eq."+me.id+")").order("server_seq",{ascending:false}).limit(200);
     const beforeSeq=Number(url.searchParams.get("beforeSeq")||0); const before=Number(url.searchParams.get("before")||0);
     if(beforeSeq)q=q.lt("server_seq",beforeSeq); else if(before)q=q.lt("created_at",before);
     const {data,error}=await q; if(error)return fail("messages_failed",500);
-    return json({messages:(data||[]).reverse().map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.nonce,ciphertext:m.ciphertext,kind:m.kind,createdAt:m.created_at,readAt:m.read_at,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status}))});
+    const rows=(data||[]).reverse();
+    const messageIds=rows.map((m:any)=>m.id);
+    const [{data:reactionRows},{data:hiddenRows}] = await Promise.all([
+      messageIds.length
+        ? db.from("m4zk_message_reactions").select("message_id,user_id,emoji").in("message_id",messageIds)
+        : Promise.resolve({data:[]}),
+      messageIds.length
+        ? db.from("m4zk_message_hidden").select("message_id").eq("user_id",me.id).in("message_id",messageIds)
+        : Promise.resolve({data:[]})
+    ]);
+    const hiddenIds=new Set((hiddenRows||[]).map((x:any)=>x.message_id));
+    const reactionsByMessage=new Map<string,any[]>();
+    for(const reaction of reactionRows||[]){
+      const list=reactionsByMessage.get(reaction.message_id)||[];
+      const found=list.find((x:any)=>x.emoji===reaction.emoji);
+      if(found){found.count+=1;found.mine=found.mine||reaction.user_id===me.id;}
+      else list.push({emoji:reaction.emoji,count:1,mine:reaction.user_id===me.id});
+      reactionsByMessage.set(reaction.message_id,list);
+    }
+    return json({messages:rows.filter((m:any)=>!hiddenIds.has(m.id)).map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.deleted_at?"":m.nonce,ciphertext:m.deleted_at?"":m.ciphertext,kind:m.deleted_at?"deleted":m.kind,createdAt:m.created_at,readAt:m.read_at,deliveredAt:m.delivered_at??null,deletedAt:m.deleted_at??null,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status,reactions:m.deleted_at?[]:(reactionsByMessage.get(m.id)||[])}))});
+  }
+  if(messageMatch&&method==="DELETE"){
+    const {data:message}=await db.from("m4zk_messages").select("id,sender_id,recipient_id,created_at,deleted_at").eq("id",messageMatch[1]).maybeSingle();
+    if(!message)return fail("not_found",404);
+    if(message.sender_id!==me.id&&message.recipient_id!==me.id)return fail("forbidden",403);
+    const mode=url.searchParams.get("mode")==="everyone"?"everyone":"me";
+    if(mode==="me"){
+      const {error}=await db.from("m4zk_message_hidden").upsert({message_id:message.id,user_id:me.id,hidden_at:now()},{onConflict:"message_id,user_id"});
+      if(error)return fail("message_hide_failed",500);
+      return json({ok:true});
+    }
+    if(message.sender_id!==me.id)return fail("only_sender_can_delete_for_everyone",403);
+    if(message.deleted_at)return json({ok:true,deletedAt:message.deleted_at});
+    if(now()-Number(message.created_at)>3600000)return fail("delete_window_expired",409);
+    const deletedAt=now();
+    const {error}=await db.from("m4zk_messages").update({nonce:"",ciphertext:"",deleted_at:deletedAt}).eq("id",message.id).eq("sender_id",me.id);
+    if(error)return fail("message_delete_failed",500);
+    await db.from("m4zk_message_reactions").delete().eq("message_id",message.id);
+    return json({ok:true,deletedAt});
+  }
+  const reactionMatch=path.match(/^\/v1\/messages\/([^/]+)\/reactions$/);
+  if(reactionMatch&&method==="POST"){
+    const allowed=["👍","❤️","😂","😮","😢","🙏","👌","🔥"];
+    const emoji=String(body.emoji||"");
+    if(!allowed.includes(emoji))return fail("invalid_emoji");
+    const {data:message}=await db.from("m4zk_messages").select("id,sender_id,recipient_id").eq("id",reactionMatch[1]).maybeSingle();
+    if(!message)return fail("not_found",404);
+    if(message.sender_id!==me.id&&message.recipient_id!==me.id)return fail("forbidden",403);
+    const {data:existing}=await db.from("m4zk_message_reactions").select("emoji").eq("message_id",message.id).eq("user_id",me.id).maybeSingle();
+    if(existing?.emoji===emoji){
+      const {error}=await db.from("m4zk_message_reactions").delete().eq("message_id",message.id).eq("user_id",me.id);
+      if(error)return fail("reaction_delete_failed",500);
+    }else{
+      const {error}=await db.from("m4zk_message_reactions").upsert({message_id:message.id,user_id:me.id,emoji,created_at:now()},{onConflict:"message_id,user_id"});
+      if(error)return fail("reaction_save_failed",500);
+    }
+    const {data:all,error}=await db.from("m4zk_message_reactions").select("user_id,emoji").eq("message_id",message.id);
+    if(error)return fail("reaction_load_failed",500);
+    const grouped=new Map<string,any>();
+    for(const item of all||[]){
+      const value=grouped.get(item.emoji)||{emoji:item.emoji,count:0,mine:false};
+      value.count+=1;value.mine=value.mine||item.user_id===me.id;grouped.set(item.emoji,value);
+    }
+    return json({reactions:[...grouped.values()]});
   }
   const readMatch=path.match(/^\/v1\/messages\/([^/]+)\/read$/);
   if(readMatch&&method==="POST"){await db.from("m4zk_messages").update({read_at:now()}).eq("recipient_id",me.id).eq("sender_id",readMatch[1]).is("read_at",null);return json({ok:true});}
