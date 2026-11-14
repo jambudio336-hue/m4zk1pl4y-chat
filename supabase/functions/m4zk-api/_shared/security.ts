@@ -16,8 +16,8 @@ function fromBase64Url(value: string): ArrayBuffer {
 }
 
 function jwtSecret(): string {
-  const secret = Deno.env.get("SUPABASE_JWT_SECRET");
-  if (!secret || secret.length < 32) throw new Error("SUPABASE_JWT_SECRET must be configured (minimum 32 characters)");
+  const secret = Deno.env.get("M4ZK_SESSION_SECRET");
+  if (!secret || secret.length < 32) throw new Error("M4ZK_SESSION_SECRET must be configured (minimum 32 characters)");
   return secret;
 }
 
@@ -35,8 +35,8 @@ export async function issueAccessToken(userId: string, sessionId: string, ttlSec
   const nowSeconds = Math.floor(Date.now() / 1000);
   const header = toBase64Url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = toBase64Url(JSON.stringify({
-    aud: "authenticated",
-    role: "authenticated",
+    aud: "m4zk-session",
+    role: "m4zk_session",
     sub: userId,
     sid: sessionId,
     iat: nowSeconds,
@@ -62,8 +62,8 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
     if (!valid) return null;
     const claims = JSON.parse(decoder.decode(fromBase64Url(parts[1]))) as AccessClaims;
     if (
-      !claims.sub || !claims.sid || claims.role !== "authenticated" ||
-      claims.aud !== "authenticated" || !Number.isFinite(claims.exp) ||
+      !claims.sub || !claims.sid || claims.role !== "m4zk_session" ||
+      claims.aud !== "m4zk-session" || !Number.isFinite(claims.exp) ||
       claims.exp <= Math.floor(Date.now() / 1000)
     ) return null;
     return claims;
