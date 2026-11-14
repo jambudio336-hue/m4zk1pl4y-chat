@@ -21,6 +21,7 @@ type Story = {
   handle: string;
   displayName: string;
   accent: string;
+  avatarUrl?: string | null;
   nonce: string;
   ciphertext: string;
   createdAt: number;
@@ -109,7 +110,7 @@ export default function Stories() {
         ListEmptyComponent={<Text style={styles.empty}>Belum ada story aktif. Bikin satu.</Text>}
         renderItem={({ item }) => (
           <Pressable style={styles.card} onPress={() => view(item)}>
-            <Avatar name={item.displayName} accent={item.accent} size={34} ring={!item.seen} />
+            <Avatar name={item.displayName} accent={item.accent} size={34} ring={!item.seen} imageUrl={item.avatarUrl} />
             <Text style={styles.cardName} numberOfLines={1}>
               {item.mine ? 'LO' : item.displayName}
             </Text>
@@ -127,7 +128,7 @@ export default function Stories() {
         <Pressable style={styles.viewer} onPress={() => setActive(null)}>
           {active ? (
             <View style={styles.viewerCard}>
-              <Avatar name={active.displayName} accent={active.accent} size={40} />
+              <Avatar name={active.displayName} accent={active.accent} size={40} imageUrl={active.avatarUrl} />
               <Text style={styles.viewerName}>{active.mine ? 'LO' : active.displayName}</Text>
               <Text style={styles.viewerBody}>{bodyOf(active)}</Text>
               <Text style={styles.viewerMeta}>
