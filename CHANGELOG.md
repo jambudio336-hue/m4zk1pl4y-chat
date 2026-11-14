@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1 — 2026-11-14
+
+### Security
+- Separated M4ZKIPLAY application-session signing from Supabase JWT signing.
+- Application tokens now use the dedicated `M4ZK_SESSION_SECRET` and the `m4zk_session` audience/role; they are verified only by the M4ZKIPLAY Edge Function.
+- Disabled the misleading Realtime-token response until a Supabase-compatible ES256 authentication flow is implemented.
+- Removed the unused mobile Realtime-token helper.
+
+### Verification
+- Supabase signing keys are not modified by this release.
+- Registration/login still require the new server-only `M4ZK_SESSION_SECRET` to be configured and require live end-to-end testing.
+
 ## 0.2.0 — 2026-11-14
 
 ### Added
@@ -7,19 +19,17 @@
 - Private `m4zk-media` and `m4zk-stories` Storage buckets with owner-folder policies.
 - Server-assigned message sequence numbers and UUID client idempotency keys.
 - Session listing and revocation endpoints.
-- One-hour Realtime JWT endpoint using the project's JWT signing secret.
 - Per-minute database-backed API rate limits for account challenges, account registration/login, general authenticated requests, and message creation.
-- Mobile API helpers for sessions, realtime tokens, and message idempotency.
 - CI checks for mobile TypeScript and Supabase Edge Function types.
 
 ### Security
-- API JWTs now carry the Supabase `authenticated` role and are bound to an active server-side device session.
-- JWT signing secret is documented as a server-only Supabase Edge Function secret.
+- Application API sessions are bound to an active server-side device session.
+- Server-only secrets are documented separately from public mobile configuration.
 - Existing avatar bucket behavior and previous migrations remain unchanged.
 
 ### Verification status
 - Foundation migration applied to the configured Supabase project.
-- End-to-end registration/login, Realtime acceptance, multi-device session revocation, and cross-device message idempotency still require live verification after configuring `SUPABASE_JWT_SECRET`.
+- End-to-end registration/login, multi-device session revocation, and cross-device message idempotency still require live verification.
 
 ## 0.1.0 — 2026-11-12
 
