@@ -16,6 +16,7 @@ export type PublicUser = {
   boxPublicKey: string;
   accent: string;
   bio: string;
+  avatarUrl?: string | null;
   lastSeen: number;
 };
 
