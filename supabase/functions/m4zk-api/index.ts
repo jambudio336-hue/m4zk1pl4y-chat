@@ -6,6 +6,11 @@ const db = createClient(SUPABASE_URL, KEY, { auth: { persistSession: false } });
 const enc = new TextEncoder();
 const b64u = (s: string) => btoa(s).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 const un64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+const decodeImageBase64 = (s: string) => {
+  const clean = s.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "").replace(/\s/g, "");
+  const normalized = clean.replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(normalized + "=".repeat((4 - normalized.length % 4) % 4)), c => c.charCodeAt(0));
+};
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json", "access-control-allow-origin": "*", "access-control-allow-headers": "authorization,content-type", "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS" } });
 const now = () => Date.now();
 const id = () => crypto.randomUUID();
@@ -36,8 +41,8 @@ async function verifyEd25519(message: string, sig: string, pub: string) {
     return await crypto.subtle.verify({ name: "Ed25519" }, key, un64(sig), enc.encode(message));
   } catch { return false; }
 }
-const publicUser = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, publicKey:u.public_key, boxPublicKey:u.box_public_key, bio:u.bio, accent:u.accent, lastSeen:u.last_seen, createdAt:u.created_at });
-const peerView = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, boxPublicKey:u.box_public_key, accent:u.accent, bio:u.bio, lastSeen:u.last_seen });
+const publicUser = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, publicKey:u.public_key, boxPublicKey:u.box_public_key, bio:u.bio, accent:u.accent, avatarUrl:u.avatar_url ?? null, lastSeen:u.last_seen, createdAt:u.created_at });
+const peerView = (u: any) => ({ id:u.id, handle:u.handle, displayName:u.display_name, boxPublicKey:u.box_public_key, accent:u.accent, bio:u.bio, avatarUrl:u.avatar_url ?? null, lastSeen:u.last_seen });
 async function blocked(a: string, b: string) {
   const { data } = await db.from("m4zk_blocks").select("owner_id").or("and(owner_id.eq."+a+",peer_id.eq."+b+"),and(owner_id.eq."+b+",peer_id.eq."+a+")").limit(1);
   return !!data?.length;
@@ -108,6 +113,37 @@ async function handle(req: Request) {
     const patch:any={}; if (body.displayName!==undefined) patch.display_name=String(body.displayName).slice(0,48); if(body.bio!==undefined) patch.bio=String(body.bio).slice(0,160); if(body.accent!==undefined) patch.accent=String(body.accent).slice(0,9);
     const {data,error}=await db.from("m4zk_users").update(patch).eq("id",me.id).select("*").single(); if(error)return fail("update_failed",500); return json({user:publicUser(data)});
   }
+  if (path === "/v1/account/avatar" && method === "POST") {
+    if (typeof body.base64 !== "string" || body.base64.length > 4_200_000) return fail("invalid_image",413);
+    const mime = String(body.mimeType || "").toLowerCase();
+    const extensions: Record<string,string> = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp" };
+    const ext = extensions[mime];
+    if (!ext) return fail("unsupported_image_type",415);
+    let bytes: Uint8Array;
+    try { bytes = decodeImageBase64(body.base64); } catch { return fail("invalid_image"); }
+    if (!bytes.length || bytes.length > 3 * 1024 * 1024) return fail("image_too_large",413);
+    const isJpeg = bytes[0]===0xff && bytes[1]===0xd8 && bytes[2]===0xff;
+    const isPng = bytes.length>=8 && bytes[0]===0x89 && bytes[1]===0x50 && bytes[2]===0x4e && bytes[3]===0x47 && bytes[4]===0x0d && bytes[5]===0x0a && bytes[6]===0x1a && bytes[7]===0x0a;
+    const isWebp = bytes.length>=12 && String.fromCharCode(...bytes.slice(0,4))==="RIFF" && String.fromCharCode(...bytes.slice(8,12))==="WEBP";
+    if ((mime==="image/jpeg"&&!isJpeg)||(mime==="image/png"&&!isPng)||(mime==="image/webp"&&!isWebp)) return fail("invalid_image_signature");
+    const path = me.id + "/avatar." + ext;
+    const { data: uploaded, error: uploadError } = await db.storage.from("m4zk-avatars").upload(path, bytes, { contentType:mime, cacheControl:"3600", upsert:true });
+    if (uploadError || !uploaded) return fail("avatar_upload_failed",500);
+    const { data: publicData } = db.storage.from("m4zk-avatars").getPublicUrl(path);
+    const { data: updated, error: updateError } = await db.from("m4zk_users").update({ avatar_url:publicData.publicUrl }).eq("id",me.id).select("*").single();
+    if (updateError || !updated) return fail("avatar_profile_update_failed",500);
+    return json({ user:publicUser(updated) });
+  }
+  if (path === "/v1/account/avatar" && method === "DELETE") {
+    if (me.avatar_url) {
+      const marker = "/m4zk-avatars/";
+      const at = String(me.avatar_url).indexOf(marker);
+      if (at >= 0) await db.storage.from("m4zk-avatars").remove([decodeURIComponent(String(me.avatar_url).slice(at + marker.length).split("?")[0])]);
+    }
+    const { data: updated, error } = await db.from("m4zk_users").update({ avatar_url:null }).eq("id",me.id).select("*").single();
+    if (error || !updated) return fail("avatar_delete_failed",500);
+    return json({ user:publicUser(updated) });
+  }
   if (path === "/v1/account/location" && method === "POST") {
     if(typeof body.lat!=="number"||typeof body.lng!=="number"||Math.abs(body.lat)>90||Math.abs(body.lng)>180)return fail("invalid_body");
     const {error}=await db.from("m4zk_users").update({lat:Math.round(body.lat*1000)/1000,lng:Math.round(body.lng*1000)/1000,location_at:now()}).eq("id",me.id); return error?fail("location_failed",500):json({ok:true});
@@ -165,8 +201,8 @@ async function handle(req: Request) {
     const {data:mine}=await db.from("m4zk_stories").select("*").eq("user_id",me.id).gt("expires_at",now());
     const {data:shared}=await db.from("m4zk_story_recipients").select("story_id,nonce,ciphertext").eq("user_id",me.id);
     const sharedIds=(shared||[]).map((x:any)=>x.story_id);
-    const {data:others}=sharedIds.length?await db.from("m4zk_stories").select("*,author:m4zk_users!m4zk_stories_user_id_fkey(handle,display_name,accent)").in("id",sharedIds).gt("expires_at",now()):{data:[]};
-    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:false};})];
+    const {data:others}=sharedIds.length?await db.from("m4zk_stories").select("*,author:m4zk_users!m4zk_stories_user_id_fkey(handle,display_name,accent,avatar_url)").in("id",sharedIds).gt("expires_at",now()):{data:[]};
+    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,avatarUrl:me.avatar_url??null,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,avatarUrl:s.author?.avatar_url??null,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:false};})];
     return json({stories});
   }
   if(path==="/v1/stories"&&method==="POST"){
@@ -200,9 +236,9 @@ async function handle(req: Request) {
   if(path==="/v1/nearby"&&method==="GET"){
     if(me.lat==null||me.lng==null)return json({users:[],reason:"no_location"});
     const radius=Math.min(Number(url.searchParams.get("radius")||2000),20000);
-    const {data}=await db.from("m4zk_users").select("id,handle,display_name,accent,bio,box_public_key,last_seen,lat,lng").neq("id",me.id).gt("location_at",now()-1800000).not("lat","is",null).not("lng","is",null).limit(300);
+    const {data}=await db.from("m4zk_users").select("id,handle,display_name,accent,bio,avatar_url,box_public_key,last_seen,lat,lng").neq("id",me.id).gt("location_at",now()-1800000).not("lat","is",null).not("lng","is",null).limit(300);
     const rad=(v:number)=>v*Math.PI/180;const dist=(a:any,b:any)=>{const d1=rad(b.lat-a.lat),d2=rad(b.lng-a.lng),h=Math.sin(d1/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(d2/2)**2;return 12742000*Math.asin(Math.sqrt(h));};
-    const users=(data||[]).map((u:any)=>({id:u.id,handle:u.handle,displayName:u.display_name,accent:u.accent,bio:u.bio,boxPublicKey:u.box_public_key,lastSeen:u.last_seen,distance:Math.round(dist(me,u))})).filter((u:any)=>u.distance<=radius).sort((a:any,b:any)=>a.distance-b.distance).slice(0,100);
+    const users=(data||[]).map((u:any)=>({id:u.id,handle:u.handle,displayName:u.display_name,accent:u.accent,bio:u.bio,avatarUrl:u.avatar_url??null,boxPublicKey:u.box_public_key,lastSeen:u.last_seen,distance:Math.round(dist(me,u))})).filter((u:any)=>u.distance<=radius).sort((a:any,b:any)=>a.distance-b.distance).slice(0,100);
     return json({users,radius});
   }
   return fail("not_found",404);
