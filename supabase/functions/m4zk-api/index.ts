@@ -260,9 +260,15 @@ async function handle(req: Request) {
     const {data,error}=await q; if(error)return fail("messages_failed",500);
     const rows=(data||[]).reverse();
     const messageIds=rows.map((m:any)=>m.id);
-    const {data:reactionRows}=messageIds.length
-      ? await db.from("m4zk_message_reactions").select("message_id,user_id,emoji").in("message_id",messageIds)
-      : {data:[]};
+    const [{data:reactionRows},{data:hiddenRows}] = await Promise.all([
+      messageIds.length
+        ? db.from("m4zk_message_reactions").select("message_id,user_id,emoji").in("message_id",messageIds)
+        : Promise.resolve({data:[]}),
+      messageIds.length
+        ? db.from("m4zk_message_hidden").select("message_id").eq("user_id",me.id).in("message_id",messageIds)
+        : Promise.resolve({data:[]})
+    ]);
+    const hiddenIds=new Set((hiddenRows||[]).map((x:any)=>x.message_id));
     const reactionsByMessage=new Map<string,any[]>();
     for(const reaction of reactionRows||[]){
       const list=reactionsByMessage.get(reaction.message_id)||[];
@@ -271,7 +277,26 @@ async function handle(req: Request) {
       else list.push({emoji:reaction.emoji,count:1,mine:reaction.user_id===me.id});
       reactionsByMessage.set(reaction.message_id,list);
     }
-    return json({messages:rows.map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.nonce,ciphertext:m.ciphertext,kind:m.kind,createdAt:m.created_at,readAt:m.read_at,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status,reactions:reactionsByMessage.get(m.id)||[]}))});
+    return json({messages:rows.filter((m:any)=>!hiddenIds.has(m.id)).map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.deleted_at?"":m.nonce,ciphertext:m.deleted_at?"":m.ciphertext,kind:m.deleted_at?"deleted":m.kind,createdAt:m.created_at,readAt:m.read_at,deletedAt:m.deleted_at??null,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status,reactions:m.deleted_at?[]:(reactionsByMessage.get(m.id)||[])}))});
+  }
+  if(messageMatch&&method==="DELETE"){
+    const {data:message}=await db.from("m4zk_messages").select("id,sender_id,recipient_id,created_at,deleted_at").eq("id",messageMatch[1]).maybeSingle();
+    if(!message)return fail("not_found",404);
+    if(message.sender_id!==me.id&&message.recipient_id!==me.id)return fail("forbidden",403);
+    const mode=url.searchParams.get("mode")==="everyone"?"everyone":"me";
+    if(mode==="me"){
+      const {error}=await db.from("m4zk_message_hidden").upsert({message_id:message.id,user_id:me.id,hidden_at:now()},{onConflict:"message_id,user_id"});
+      if(error)return fail("message_hide_failed",500);
+      return json({ok:true});
+    }
+    if(message.sender_id!==me.id)return fail("only_sender_can_delete_for_everyone",403);
+    if(message.deleted_at)return json({ok:true,deletedAt:message.deleted_at});
+    if(now()-Number(message.created_at)>3600000)return fail("delete_window_expired",409);
+    const deletedAt=now();
+    const {error}=await db.from("m4zk_messages").update({nonce:"",ciphertext:"",deleted_at:deletedAt}).eq("id",message.id).eq("sender_id",me.id);
+    if(error)return fail("message_delete_failed",500);
+    await db.from("m4zk_message_reactions").delete().eq("message_id",message.id);
+    return json({ok:true,deletedAt});
   }
   const reactionMatch=path.match(/^\/v1\/messages\/([^/]+)\/reactions$/);
   if(reactionMatch&&method==="POST"){
