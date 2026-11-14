@@ -67,8 +67,12 @@ export default function Chat() {
   }, [id, load]);
 
   useEffect(() => {
+    if (!peerBoxKey) return;
+    // Supabase Edge Functions are request/response endpoints, not persistent Socket.IO servers.
+    // Poll stored messages while this conversation is open so offline recipients receive updates.
+    const poll = setInterval(() => { load(peerBoxKey).catch(() => {}); }, 5000);
     const socket = getSocket();
-    if (!socket || !peerBoxKey) return;
+    if (!socket) return () => clearInterval(poll);
 
     const onNew = (wire: WireMessage) => {
       if (wire.senderId !== String(id) && wire.recipientId !== String(id)) return;
@@ -87,6 +91,7 @@ export default function Chat() {
     socket.on('connect', onReconnect);
 
     return () => {
+      clearInterval(poll);
       socket.off('message:new', onNew);
       socket.off('typing', onTyping);
       socket.off('message:read', onRead);
@@ -170,18 +175,18 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   list: { padding: space.md, gap: space.sm },
   bubble: {
-    maxWidth: '82%',
-    paddingVertical: space.sm,
-    paddingHorizontal: space.md,
-    borderRadius: radius.sm,
-    borderWidth: 2,
+    maxWidth: '84%',
+    paddingVertical: 9,
+    paddingHorizontal: 13,
+    borderRadius: 16,
+    borderWidth: 1,
   },
-  mine: { alignSelf: 'flex-end', backgroundColor: colors.accent, borderColor: colors.accent },
-  theirs: { alignSelf: 'flex-start', backgroundColor: colors.panel, borderColor: colors.lineDim },
-  body: { color: colors.text, fontFamily: 'monospace', fontSize: 14, lineHeight: 20 },
-  bodyMine: { color: colors.bg },
-  stamp: { color: colors.textDim, fontFamily: 'monospace', fontSize: 9, marginTop: 4 },
-  stampMine: { color: '#5A5200' },
+  mine: { alignSelf: 'flex-end', backgroundColor: '#005C4B', borderColor: '#005C4B', borderBottomRightRadius: 5 },
+  theirs: { alignSelf: 'flex-start', backgroundColor: colors.panelAlt, borderColor: colors.lineDim, borderBottomLeftRadius: 5 },
+  body: { color: colors.text, fontFamily: 'System', fontSize: 14, lineHeight: 21 },
+  bodyMine: { color: '#E9EDEF' },
+  stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, marginTop: 4, textAlign: 'right' },
+  stampMine: { color: '#A9DCCF' },
   typing: {
     ...type.label,
     color: colors.textDim,
@@ -193,13 +198,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: space.sm,
     padding: space.sm,
-    borderTopWidth: 3,
-    borderTopColor: colors.line,
+    borderTopWidth: 1,
+    borderTopColor: colors.lineDim,
     backgroundColor: colors.bg,
   },
   callBtn: {
     ...border.thin,
-    borderRadius: radius.sm,
+    borderRadius: 22,
     width: 42,
     height: 42,
     alignItems: 'center',
@@ -209,10 +214,10 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     ...border.thin,
-    borderRadius: radius.sm,
-    backgroundColor: colors.panel,
+    borderRadius: 20,
+    backgroundColor: colors.panelAlt,
     color: colors.text,
-    fontFamily: 'monospace',
+    fontFamily: 'System',
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
     maxHeight: 120,
@@ -221,7 +226,7 @@ const styles = StyleSheet.create({
   send: {
     width: 42,
     height: 42,
-    borderRadius: radius.sm,
+    borderRadius: 22,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
