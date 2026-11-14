@@ -39,7 +39,7 @@ export default function Chat() {
     (wire: WireMessage, key: string): Bubble => ({
       id: wire.id,
       mine: wire.senderId === session?.user.id,
-      body: open(wire.ciphertext, wire.nonce, key) ?? '[tidak bisa didekripsi]',
+      body: wire.kind === 'deleted' ? 'Pesan telah dihapus' : (open(wire.ciphertext, wire.nonce, key) ?? '[tidak bisa didekripsi]'),
       at: wire.createdAt,
       kind: wire.kind,
       reactions: wire.reactions ?? [],
@@ -102,6 +102,23 @@ export default function Chat() {
       socket.off('connect', onReconnect);
     };
   }, [id, peerBoxKey, decode, load]);
+
+  async function deleteTarget(mode: 'me' | 'everyone') {
+    const target = reactionTarget;
+    setReactionTarget(null);
+    if (!target) return;
+    try {
+      await api.deleteMessage(target, mode);
+      setBubbles((prev) => mode === 'me'
+        ? prev.filter((bubble) => bubble.id !== target)
+        : prev.map((bubble) => bubble.id === target
+          ? { ...bubble, body: 'Pesan telah dihapus', kind: 'deleted', reactions: [] }
+          : bubble));
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  }
 
   async function send() {
     const body = draft.trim();
@@ -172,6 +189,16 @@ export default function Chat() {
                 <Text style={styles.reactionEmoji}>{emoji}</Text>
               </Pressable>
             ))}
+            <View style={styles.deleteActions}>
+              <Pressable style={styles.deleteAction} onPress={() => deleteTarget('me')}>
+                <Text style={styles.deleteActionText}>Hapus untuk saya</Text>
+              </Pressable>
+              {bubbles.find((bubble) => bubble.id === reactionTarget)?.mine ? (
+                <Pressable style={styles.deleteAction} onPress={() => deleteTarget('everyone')}>
+                  <Text style={styles.deleteActionDanger}>Hapus untuk semua orang</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
         </Pressable>
       </Modal>
@@ -233,6 +260,10 @@ const styles = StyleSheet.create({
   reactionPicker: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 18, padding: 10, maxWidth: 300 },
   reactionOption: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' },
   reactionEmoji: { fontSize: 29 },
+  deleteActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 10, marginTop: 14 },
+  deleteAction: { paddingVertical: 9, paddingHorizontal: 12, borderRadius: 10, backgroundColor: colors.panelAlt },
+  deleteActionText: { color: colors.text, fontSize: 12, fontWeight: '700' },
+  deleteActionDanger: { color: colors.danger, fontSize: 12, fontWeight: '700' },
   typing: {
     ...type.label,
     color: colors.textDim,
