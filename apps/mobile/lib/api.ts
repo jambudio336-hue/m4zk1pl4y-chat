@@ -20,7 +20,7 @@ export type WireMessage = {
   id: string; senderId: string; recipientId: string; nonce: string; ciphertext: string;
   kind: 'text' | 'image' | 'voice' | 'video'; createdAt: number; readAt: number | null;
   serverSeq?: number; clientMsgId?: string | null; status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
-  reactions?: { emoji: string; count: number; mine: boolean }[];
+  reactions?: { emoji: string; count: number; mine: boolean }[]; deletedAt?: number | null;
 };
 
 export class ApiError extends Error {
@@ -61,6 +61,8 @@ export const api = {
     request<{ message: WireMessage }>('/v1/messages', { method: 'POST', body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId }) }),
   reactToMessage: (messageId: string, emoji: string) =>
     request<{ reactions: { emoji: string; count: number; mine: boolean }[] }>(`/v1/messages/${encodeURIComponent(messageId)}/reactions`, { method: 'POST', body: JSON.stringify({ emoji }) }),
+  deleteMessage: (messageId: string, mode: 'me' | 'everyone') =>
+    request<{ ok: true; deletedAt?: number }>(`/v1/messages/${encodeURIComponent(messageId)}?mode=${mode}`, { method: 'DELETE' }),
   markRead: (peerId: string) => request<{ ok: true }>(`/v1/messages/${peerId}/read`, { method: 'POST' }),
   stories: () => request<{ stories: any[] }>('/v1/stories'),
   postStory: (nonce: string, ciphertext: string, recipients: { userId: string; nonce: string; ciphertext: string }[], kind = 'text') =>
