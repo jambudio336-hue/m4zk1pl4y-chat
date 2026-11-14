@@ -43,6 +43,9 @@ export default function Chats() {
 
   useFocusEffect(useCallback(() => {
     load().catch(() => {});
+    // Refresh inbox periodically because the serverless API does not host persistent Socket.IO.
+    const refresh = setInterval(() => { load().catch(() => {}); }, 15000);
+    return () => clearInterval(refresh);
   }, [load]));
 
   const filtered = useMemo(() => rows.filter((item) => {
