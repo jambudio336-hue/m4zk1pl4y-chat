@@ -22,6 +22,7 @@ export type Contact = {
     accent: string;
     bio: string;
     lastSeen: number;
+    avatarUrl?: string | null;
   };
 };
 
@@ -69,6 +70,11 @@ export const api = {
 
   patchMe: (patch: { displayName?: string; bio?: string; accent?: string }) =>
     request<{ user: any }>('/v1/account/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+
+  uploadAvatar: (base64: string, mimeType: string) =>
+    request<{ user: any }>('/v1/account/avatar', { method: 'POST', body: JSON.stringify({ base64, mimeType }) }),
+
+  deleteAvatar: () => request<{ user: any }>('/v1/account/avatar', { method: 'DELETE' }),
 
   pushLocation: (lat: number, lng: number) =>
     request<{ ok: true }>('/v1/account/location', {
