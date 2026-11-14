@@ -18,7 +18,7 @@ export type Contact = {
 
 export type WireMessage = {
   id: string; senderId: string; recipientId: string; nonce: string; ciphertext: string;
-  kind: 'text' | 'image' | 'voice' | 'video'; createdAt: number; readAt: number | null;
+  kind: 'text' | 'image' | 'voice' | 'video' | 'deleted'; createdAt: number; readAt: number | null;
   serverSeq?: number; clientMsgId?: string | null; status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
   reactions?: { emoji: string; count: number; mine: boolean }[]; deletedAt?: number | null;
 };
