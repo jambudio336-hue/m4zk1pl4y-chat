@@ -29,7 +29,7 @@ async function createSessionToken(userId: string, req: Request, deviceLabel: unk
   return { token: await issueAccessToken(userId, sessionId, ttlSeconds), sessionId };
 }
 async function auth(req: Request) {
-  const token = (req.headers.get("authorization") || "").replace(/^Bearer\\s+/i, "");
+  const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const claims = await verifyAccessToken(token);
   if (!claims) return null;
   const { data: session, error: sessionError } = await db.from("m4zk_sessions")
@@ -138,7 +138,7 @@ async function handle(req: Request) {
       id:s.id, deviceLabel:s.device_label, createdAt:s.created_at, current:s.id === me._sessionId
     })) });
   }
-  const sessionMatch = path.match(/^\\/v1\\/account\\/sessions\\/([^/]+)$/);
+  const sessionMatch = path.match(/^\/v1\/account\/sessions\/([^/]+)$/);
   if (sessionMatch && method === "DELETE") {
     const { data, error } = await db.from("m4zk_sessions").update({ revoked_at: now() })
       .eq("id", sessionMatch[1]).eq("user_id", me.id).is("revoked_at", null)
