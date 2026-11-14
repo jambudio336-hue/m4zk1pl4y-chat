@@ -41,7 +41,7 @@ export default function Settings() {
       if (result.canceled || !result.assets[0]?.base64) return;
       setUploadingAvatar(true);
       const asset=result.assets[0];
-      const response=await api.uploadAvatar(asset.base64,asset.mimeType||'image/jpeg');
+      const response=await api.uploadAvatar(asset.base64,String(asset.mimeType || 'image/jpeg'));
       updateUser({ ...session!.user, ...response.user });
       Alert.alert('FOTO DIPERBARUI','Foto profil sekarang tersimpan dan bisa dilihat kontakmu.');
     } catch (error:any) { Alert.alert('UPLOAD GAGAL',error?.message||'Periksa koneksi lalu coba lagi.'); }
