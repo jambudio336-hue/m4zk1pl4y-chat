@@ -41,6 +41,14 @@ jobs:
           packages: platform-tools platforms;android-36 build-tools;36.0.0
       - name: Install workspace dependencies
         run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: TypeScript check
+        run: npx tsc --noEmit -p apps/mobile/tsconfig.json
+      - name: Supabase Edge Function type check
+        run: deno check supabase/functions/m4zk-api/index.ts
       - name: Validate backend JavaScript syntax
         run: find apps/server/src -type f -name '*.js' -print0 | xargs -0 -r -n1 node --check
       - name: Configure API URL
