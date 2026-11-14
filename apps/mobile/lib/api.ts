@@ -36,6 +36,7 @@ export type WireMessage = {
   kind: 'text' | 'image' | 'voice' | 'video' | 'deleted';
   createdAt: number;
   readAt: number | null;
+  deliveredAt?: number | null;
   serverSeq?: number;
   clientMsgId?: string | null;
   status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
