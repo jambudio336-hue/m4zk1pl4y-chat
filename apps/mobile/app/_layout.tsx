@@ -18,7 +18,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (session) {
       const socket = connectSocket();
-      return () => socket?.disconnect();
+      return () => { socket?.disconnect(); };
     }
     disconnectSocket();
     return undefined;
@@ -49,7 +49,7 @@ export default function RootLayout() {
       );
     };
     socket.on('call:offer', onOffer);
-    return () => socket.off('call:offer', onOffer);
+    return () => { socket.off('call:offer', onOffer); };
   }, [session?.token]);
 
   if (!ready) {
