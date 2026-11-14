@@ -1,4 +1,5 @@
 import { getToken } from './identity';
+import * as Crypto from 'expo-crypto';
 
 const configuredApiUrl = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
 export const API_URL = configuredApiUrl ?? '';
@@ -35,6 +36,9 @@ export type WireMessage = {
   kind: 'text' | 'image' | 'voice';
   createdAt: number;
   readAt: number | null;
+  serverSeq?: number;
+  clientMsgId?: string | null;
+  status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
 };
 
 export class ApiError extends Error {
@@ -67,6 +71,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const api = {
   me: () => request<{ user: any }>('/v1/account/me'),
+
+  realtimeToken: () => request<{ token: string; expiresIn: number }>('/v1/account/realtime-token', { method: 'POST' }),
+
+  sessions: () => request<{ sessions: { id: string; deviceLabel: string; createdAt: number; current: boolean }[] }>('/v1/account/sessions'),
+
+  revokeSession: (sessionId: string) => request<{ ok: true }>(`/v1/account/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
 
   patchMe: (patch: { displayName?: string; bio?: string; accent?: string }) =>
     request<{ user: any }>('/v1/account/me', { method: 'PATCH', body: JSON.stringify(patch) }),
@@ -103,10 +113,10 @@ export const api = {
       `/v1/messages/${peerId}${before ? `?before=${before}` : ''}`,
     ),
 
-  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text') =>
+  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text', clientMsgId = Crypto.randomUUID()) =>
     request<{ message: WireMessage }>('/v1/messages', {
       method: 'POST',
-      body: JSON.stringify({ to, nonce, ciphertext, kind }),
+      body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId }),
     }),
 
   markRead: (peerId: string) =>
