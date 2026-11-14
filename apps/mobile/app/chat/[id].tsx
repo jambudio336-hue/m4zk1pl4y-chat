@@ -16,7 +16,8 @@ import { getSocket } from '../../lib/socket';
 import { useSession, open, seal } from '../../lib/identity';
 import { colors, space, type, border, radius } from '../../lib/theme';
 
-type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string };
+type Reaction = { emoji: string; count: number; mine: boolean };
+type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string; reactions: Reaction[] };
 
 export default function Chat() {
   const { id, handle } = useLocalSearchParams<{ id: string; handle?: string }>();
@@ -26,6 +27,7 @@ export default function Chat() {
   const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [draft, setDraft] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null);
   const listRef = useRef<FlatList<Bubble>>(null);
 
   useEffect(() => {
@@ -128,14 +130,49 @@ export default function Chat() {
         contentContainerStyle={styles.list}
         onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
         renderItem={({ item }) => (
-          <View style={[styles.bubble, item.mine ? styles.mine : styles.theirs]}>
+          <Pressable
+            style={[styles.bubble, item.mine ? styles.mine : styles.theirs]}
+            onLongPress={() => setReactionTarget(item.id)}
+            delayLongPress={280}
+          >
             <Text style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
             <Text style={[styles.stamp, item.mine && styles.stampMine]}>
               {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
             </Text>
-          </View>
+            {item.reactions.length ? (
+              <View style={styles.reactionLine}>
+                {item.reactions.map((reaction) => (
+                  <Text key={reaction.emoji} style={[styles.reactionChip, reaction.mine && styles.ownReaction]}>
+                    {reaction.emoji} {reaction.count}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </Pressable>
         )}
       />
+
+      <Modal visible={!!reactionTarget} transparent animationType="fade" onRequestClose={() => setReactionTarget(null)}>
+        <Pressable style={styles.reactionOverlay} onPress={() => setReactionTarget(null)}>
+          <View style={styles.reactionPicker}>
+            {['👍','❤️','😂','😮','😢','🙏','👌','🔥'].map((emoji) => (
+              <Pressable key={emoji} style={styles.reactionOption} onPress={async () => {
+                const target = reactionTarget;
+                setReactionTarget(null);
+                if (!target) return;
+                try {
+                  const result = await api.reactToMessage(target, emoji);
+                  setBubbles((prev) => prev.map((bubble) => bubble.id === target ? { ...bubble, reactions: result.reactions } : bubble));
+                } catch {
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                }
+              }}>
+                <Text style={styles.reactionEmoji}>{emoji}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
+      </Modal>
 
       {peerTyping ? <Text style={styles.typing}>sedang menulis...</Text> : null}
 
@@ -187,6 +224,13 @@ const styles = StyleSheet.create({
   bodyMine: { color: '#E9EDEF' },
   stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, marginTop: 4, textAlign: 'right' },
   stampMine: { color: '#A9DCCF' },
+  reactionLine: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },
+  reactionChip: { color: colors.text, backgroundColor: '#263542', borderRadius: 12, overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2, fontSize: 11 },
+  ownReaction: { borderWidth: 1, borderColor: colors.accent },
+  reactionOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  reactionPicker: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', backgroundColor: colors.panel, borderColor: colors.line, borderWidth: 1, borderRadius: 18, padding: 10, maxWidth: 300 },
+  reactionOption: { width: 58, height: 58, alignItems: 'center', justifyContent: 'center' },
+  reactionEmoji: { fontSize: 29 },
   typing: {
     ...type.label,
     color: colors.textDim,
