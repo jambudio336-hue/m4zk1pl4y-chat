@@ -165,17 +165,17 @@ See [LICENCE](LICENCE).
 
 ## Phase 1 — Foundation
 
-The foundation migration adds server-side message ordering and idempotency, device sessions, per-minute rate-limit storage, private media/story buckets, and the supporting metadata tables. The API issues project-signed JWTs with the `authenticated` role; access tokens are limited to seven days and realtime tokens to one hour.
+The foundation migration adds server-side message ordering and idempotency, device sessions, per-minute rate-limit storage, private media/story buckets, and the supporting metadata tables. The API issues **application-only session tokens** (HS256, `m4zk_session` audience/role) that are verified only by the Edge Function. Access tokens are limited to seven days and bound to an active server-side device session. They are not Supabase Auth JWTs.
 
-### Required Supabase secret
+### Required Edge Function secret
 
-Set `SUPABASE_JWT_SECRET` in **Supabase Dashboard → Edge Functions → Secrets** to the project's existing JWT signing secret (the value shown in the project's API/JWT settings). This must be the same signing secret used by Supabase Realtime and Storage. Do not generate a different value, commit it, or expose it through an `EXPO_PUBLIC_*` variable.
+Create a **new, independent random secret** named `M4ZK_SESSION_SECRET` in **Supabase Dashboard → Edge Functions → Secrets**. Use at least 32 random characters. This secret signs only M4ZKIPLAY application sessions; it is not the Supabase JWT signing secret and must never be reused as one. Do not paste it into chat, commit it, or expose it through an `EXPO_PUBLIC_*` variable.
 
-The variable-name template is in `supabase/functions/m4zk-api/.env.example`. The API's authentication and account registration/login will return an internal error until this secret is configured.
+The variable-name template is in `supabase/functions/m4zk-api/.env.example`. Registration/login will return an internal error until this secret is configured. Keep the existing Supabase signing keys unchanged.
 
 ### Phase 1 API additions
 
-- `POST /v1/account/realtime-token` — issue a one-hour JWT for Realtime.
+- `POST /v1/account/realtime-token` — intentionally returns `503 realtime_not_configured` until a Supabase-compatible Realtime authentication flow is implemented; app session tokens are not accepted as Supabase JWTs.
 - `GET /v1/account/sessions` — list active device sessions.
 - `DELETE /v1/account/sessions/:id` — revoke one of the current user's sessions.
 - `POST /v1/messages` accepts a UUID `clientMsgId`; duplicate submissions return the original message.
