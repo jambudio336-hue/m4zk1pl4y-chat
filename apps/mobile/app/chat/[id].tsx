@@ -29,6 +29,7 @@ export default function Chat() {
   const [draft, setDraft] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
   const [reactionTarget, setReactionTarget] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const listRef = useRef<FlatList<Bubble>>(null);
 
   useEffect(() => {
@@ -120,6 +121,21 @@ export default function Chat() {
     }
   }
 
+  async function deleteSelected(mode: 'me' | 'everyone') {
+    const targets = bubbles.filter((bubble) => selectedIds.includes(bubble.id) && (mode === 'me' || bubble.mine));
+    if (!targets.length) return;
+    const settled = await Promise.allSettled(targets.map((bubble) => api.deleteMessage(bubble.id, mode)));
+    const succeeded = new Set(targets.filter((_, index) => settled[index].status === 'fulfilled').map((bubble) => bubble.id));
+    setBubbles((prev) => mode === 'me'
+      ? prev.filter((bubble) => !succeeded.has(bubble.id))
+      : prev.map((bubble) => succeeded.has(bubble.id)
+        ? { ...bubble, body: 'Pesan telah dihapus', kind: 'deleted', reactions: [] }
+        : bubble));
+    setSelectedIds([]);
+    if (succeeded.size) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (succeeded.size !== targets.length) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+  }
+
   async function send() {
     const body = draft.trim();
     if (!body || !peerBoxKey) return;
@@ -142,6 +158,16 @@ export default function Chat() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
+      {selectedIds.length ? (
+        <View style={styles.selectionBar}>
+          <Text style={styles.selectionCount}>{selectedIds.length} pesan dipilih</Text>
+          <Pressable onPress={() => setSelectedIds([])}><Text style={styles.selectionCancel}>Batal</Text></Pressable>
+          <Pressable onPress={() => deleteSelected('me')}><Text style={styles.selectionAction}>Hapus saya</Text></Pressable>
+          {bubbles.filter((bubble) => selectedIds.includes(bubble.id)).every((bubble) => bubble.mine) ? (
+            <Pressable onPress={() => deleteSelected('everyone')}><Text style={styles.selectionDanger}>Hapus semua</Text></Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <FlatList
         ref={listRef}
         data={bubbles}
@@ -151,7 +177,10 @@ export default function Chat() {
         renderItem={({ item }) => (
           <Pressable
             style={[styles.bubble, item.mine ? styles.mine : styles.theirs]}
-            onLongPress={() => setReactionTarget(item.id)}
+            onLongPress={() => setSelectedIds((prev) => prev.includes(item.id) ? prev : [...prev, item.id])}
+            onPress={() => {
+              if (selectedIds.length) setSelectedIds((prev) => prev.includes(item.id) ? prev.filter((value) => value !== item.id) : [...prev, item.id]);
+            }}
             delayLongPress={280}
           >
             <Text style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
@@ -239,6 +268,11 @@ export default function Chat() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
+  selectionBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.panel, borderBottomWidth: 1, borderBottomColor: colors.lineDim },
+  selectionCount: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  selectionCancel: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
+  selectionAction: { color: colors.accent, fontSize: 12, fontWeight: '700' },
+  selectionDanger: { color: colors.danger, fontSize: 12, fontWeight: '700' },
   list: { padding: space.md, gap: space.sm },
   bubble: {
     maxWidth: '84%',
