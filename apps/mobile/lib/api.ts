@@ -72,8 +72,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<{ user: any }>('/v1/account/me'),
 
-  realtimeToken: () => request<{ token: string; expiresIn: number }>('/v1/account/realtime-token', { method: 'POST' }),
-
   sessions: () => request<{ sessions: { id: string; deviceLabel: string; createdAt: number; current: boolean }[] }>('/v1/account/sessions'),
 
   revokeSession: (sessionId: string) => request<{ ok: true }>(`/v1/account/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
