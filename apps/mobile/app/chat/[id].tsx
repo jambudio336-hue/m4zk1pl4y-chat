@@ -6,6 +6,7 @@ import {
   FlatList,
   TextInput,
   Pressable,
+  Modal,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
@@ -41,6 +42,7 @@ export default function Chat() {
       body: open(wire.ciphertext, wire.nonce, key) ?? '[tidak bisa didekripsi]',
       at: wire.createdAt,
       kind: wire.kind,
+      reactions: wire.reactions ?? [],
     }),
     [session?.user.id],
   );
