@@ -146,7 +146,8 @@ The workflow accepts an optional `M4ZK_API_URL` repository variable and otherwis
 - [x] Supabase API health endpoint
 - [ ] Registration and login end-to-end
 - [ ] Two-device message send/receive
-- [ ] Profile photo upload and public/private visibility rules
+- [x] Profile photo upload endpoint and public bucket configuration
+- [ ] End-to-end profile photo upload and cross-account visibility test
 - [ ] Stories upload and playback
 - [ ] Realtime delivery and read receipts
 - [ ] Push notifications
