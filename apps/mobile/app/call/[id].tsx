@@ -212,7 +212,7 @@ export default function Call() {
           </Pressable>
         ) : null}
 
-        <Pressable style={[styles.ctrl, styles.ctrlEnd]} onPress={hangup}>
+        <Pressable style={[styles.ctrl, styles.ctrlEnd]} onPress={() => hangup()}>
           <Text style={styles.ctrlGlyph}>■</Text>
           <Text style={styles.ctrlLabel}>TUTUP</Text>
         </Pressable>
