@@ -130,7 +130,8 @@ async function handle(req: Request) {
 
   if (path === "/v1/account/me" && method === "GET") return json({ user:publicUser(me) });
   if (path === "/v1/account/realtime-token" && method === "POST") {
-    return json({ token: await issueAccessToken(me.id, me._sessionId, 3600), expiresIn: 3600 });
+    // App session tokens are deliberately not Supabase Auth JWTs. Do not expose them as Realtime credentials.
+    return fail("realtime_not_configured", 503);
   }
   if (path === "/v1/account/sessions" && method === "GET") {
     const { data, error } = await db.from("m4zk_sessions").select("id,device_label,created_at")
