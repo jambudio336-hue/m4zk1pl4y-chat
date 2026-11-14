@@ -21,12 +21,14 @@ async function createSessionToken(userId: string, req: Request, deviceLabel: unk
   const forwarded = req.headers.get("cf-connecting-ip")
     || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const lastIpHash = await hashClientIp(forwarded);
+  // Validate signing configuration and build the token before persisting the session.
+  const token = await issueAccessToken(userId, sessionId, ttlSeconds);
   const { error } = await db.from("m4zk_sessions").insert({
     id: sessionId, user_id: userId, device_label: String(deviceLabel || "mobile").slice(0, 80),
     last_ip_hash: lastIpHash, created_at: now(),
   });
   if (error) throw new Error("session_create_failed");
-  return { token: await issueAccessToken(userId, sessionId, ttlSeconds), sessionId };
+  return { token, sessionId };
 }
 async function auth(req: Request) {
   const token = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
