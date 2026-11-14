@@ -18,7 +18,7 @@ import { useSession, open, seal } from '../../lib/identity';
 import { colors, space, type, border, radius } from '../../lib/theme';
 
 type Reaction = { emoji: string; count: number; mine: boolean };
-type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string; reactions: Reaction[] };
+type Bubble = { id: string; mine: boolean; body: string; at: number; kind: string; reactions: Reaction[]; deliveredAt: number | null; readAt: number | null };
 
 export default function Chat() {
   const { id, handle } = useLocalSearchParams<{ id: string; handle?: string }>();
@@ -44,6 +44,8 @@ export default function Chat() {
       at: wire.createdAt,
       kind: wire.kind,
       reactions: wire.reactions ?? [],
+      deliveredAt: wire.deliveredAt ?? null,
+      readAt: wire.readAt ?? null,
     }),
     [session?.user.id],
   );
@@ -185,9 +187,16 @@ export default function Chat() {
             delayLongPress={280}
           >
             <Text style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
-            <Text style={[styles.stamp, item.mine && styles.stampMine]}>
-              {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-            </Text>
+            <View style={styles.stampLine}>
+              <Text style={[styles.stamp, item.mine && styles.stampMine]}>
+                {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+              {item.mine ? (
+                <Text style={[styles.receipt, item.readAt ? styles.receiptRead : item.deliveredAt ? styles.receiptDelivered : null]}>
+                  {item.readAt ? '✓✓' : item.deliveredAt ? '✓✓' : '✓'}
+                </Text>
+              ) : null}
+            </View>
             {item.reactions.length ? (
               <View style={styles.reactionLine}>
                 {item.reactions.map((reaction) => (
@@ -287,7 +296,11 @@ const styles = StyleSheet.create({
   theirs: { alignSelf: 'flex-start', backgroundColor: colors.panelAlt, borderColor: colors.lineDim, borderBottomLeftRadius: 5 },
   body: { color: colors.text, fontFamily: 'System', fontSize: 14, lineHeight: 21 },
   bodyMine: { color: '#E9EDEF' },
-  stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, marginTop: 4, textAlign: 'right' },
+  stampLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
+  stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, textAlign: 'right' },
+  receipt: { color: '#A9DCCF', fontSize: 11, fontWeight: '900' },
+  receiptDelivered: { color: '#B9E8DD' },
+  receiptRead: { color: '#FF5268' },
   stampMine: { color: '#A9DCCF' },
   reactionLine: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },
   reactionChip: { color: colors.text, backgroundColor: '#263542', borderRadius: 12, overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 2, fontSize: 11 },
