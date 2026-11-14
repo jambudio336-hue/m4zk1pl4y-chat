@@ -18,8 +18,8 @@ const id = () => crypto.randomUUID();
 const fail = (error: string, status = 400) => json({ error }, status);
 async function createSessionToken(userId: string, req: Request, deviceLabel: unknown, ttlSeconds = 7 * 86400) {
   const sessionId = id();
-  const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("cf-connecting-ip") || "unknown";
+  const forwarded = req.headers.get("cf-connecting-ip")
+    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const lastIpHash = await hashClientIp(forwarded);
   const { error } = await db.from("m4zk_sessions").insert({
     id: sessionId, user_id: userId, device_label: String(deviceLabel || "mobile").slice(0, 80),
@@ -45,8 +45,8 @@ async function enforceLimit(bucket: string, limit: number) {
   return result.allowed ? null : json({ error: "rate_limited", retryAfter: result.retryAfter }, 429);
 }
 async function ipBucket(req: Request, scope: string) {
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
-    || req.headers.get("cf-connecting-ip") || "unknown";
+  const ip = req.headers.get("cf-connecting-ip")
+    || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   return "ip:" + await hashClientIp(ip) + ":" + scope;
 }
 async function verifyEd25519(message: string, sig: string, pub: string) {
