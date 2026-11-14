@@ -78,7 +78,7 @@ export default function Chats() {
           <Text style={styles.pendingLabel}>PERMINTAAN ({pending.length})</Text>
           {pending.map((p) => (
             <View key={p.contactId} style={styles.pendingRow}>
-              <Avatar name={p.peer.displayName} accent={p.peer.accent} size={32} />
+              <Avatar name={p.peer.displayName} accent={p.peer.accent} size={32} imageUrl={p.peer.avatarUrl} />
               <Text style={styles.pendingName} numberOfLines={1}>
                 {p.peer.displayName}
               </Text>
@@ -126,7 +126,7 @@ export default function Chats() {
             style={styles.row}
             onPress={() => router.push(`/chat/${item.peer.id}?handle=${item.peer.handle}`)}
           >
-            <Avatar name={item.peer.displayName} accent={item.peer.accent} />
+            <Avatar name={item.peer.displayName} accent={item.peer.accent} imageUrl={item.peer.avatarUrl} />
             <View style={{ flex: 1 }}>
               <Text style={styles.name} numberOfLines={1}>
                 {item.peer.displayName}
