@@ -335,6 +335,66 @@ async function handle(req: Request) {
     return json({ok:true});
   }
 
+  if (path === "/v1/calls" && method === "POST") {
+    const peerId = String(body.to || "");
+    const mode = body.mode === "video" ? "video" : "audio";
+    if (!peerId || peerId === me.id || !await accepted(me.id, peerId) || await blocked(me.id, peerId)) return fail("call_peer_unavailable", 403);
+    const { data: call, error } = await db.from("m4zk_calls").insert({
+      id: id(), caller_id: me.id, callee_id: peerId, mode, status: "ringing", created_at: now()
+    }).select("id,mode,status,created_at").single();
+    if (error || !call) return fail("call_create_failed", 500);
+    return json({ callId: call.id, mode: call.mode, status: call.status, createdAt: call.created_at }, 201);
+  }
+  if (path === "/v1/calls/incoming" && method === "GET") {
+    const { data: calls, error } = await db.from("m4zk_calls")
+      .select("id,caller_id,mode,status,created_at")
+      .eq("callee_id", me.id).eq("status", "ringing").gt("created_at", now() - 60000)
+      .order("created_at", { ascending: false }).limit(10);
+    if (error) return fail("incoming_calls_failed", 500);
+    const callerIds = (calls || []).map((call:any) => call.caller_id);
+    const { data: callers } = callerIds.length
+      ? await db.from("m4zk_users").select("id,handle,display_name,avatar_url").in("id", callerIds)
+      : { data: [] };
+    const byId = new Map((callers || []).map((u:any) => [u.id, u]));
+    return json({ calls: (calls || []).map((call:any) => ({ ...call, caller: byId.get(call.caller_id) || null })) });
+  }
+  const callSignalsMatch = path.match(/^\/v1\/calls\/([^/]+)\/signals$/);
+  if (callSignalsMatch && method === "POST") {
+    const callId = callSignalsMatch[1];
+    const { data: call, error: callError } = await db.from("m4zk_calls").select("*").eq("id", callId).maybeSingle();
+    if (callError || !call || (call.caller_id !== me.id && call.callee_id !== me.id)) return fail("call_not_found", 404);
+    if (call.status === "ended" || call.status === "rejected") return fail("call_closed", 409);
+    const toId = call.caller_id === me.id ? call.callee_id : call.caller_id;
+    const signalType = String(body.type || "");
+    if (!["offer", "answer", "ice", "end", "reject"].includes(signalType)) return fail("invalid_signal_type");
+    const payload = body.payload ?? {};
+    let payloadSize = 0;
+    try { payloadSize = new TextEncoder().encode(JSON.stringify(payload)).length; } catch { return fail("invalid_signal_payload"); }
+    if (payloadSize > 16384) return fail("signal_too_large", 413);
+    const { error } = await db.from("m4zk_call_signals").insert({
+      id: id(), call_id: callId, from_id: me.id, to_id: toId, type: signalType, payload, created_at: now()
+    });
+    if (error) return fail("signal_store_failed", 500);
+    if (signalType === "end" || signalType === "reject") {
+      await db.from("m4zk_calls").update({ status: signalType === "reject" ? "rejected" : "ended" }).eq("id", callId);
+    } else if (signalType === "answer") {
+      await db.from("m4zk_calls").update({ status: "active" }).eq("id", callId);
+    }
+    return json({ ok: true });
+  }
+  if (callSignalsMatch && method === "GET") {
+    const callId = callSignalsMatch[1];
+    const { data: call, error: callError } = await db.from("m4zk_calls").select("id,caller_id,callee_id,status").eq("id", callId).maybeSingle();
+    if (callError || !call || (call.caller_id !== me.id && call.callee_id !== me.id)) return fail("call_not_found", 404);
+    const after = Number(url.searchParams.get("after") || 0);
+    const { data: signals, error } = await db.from("m4zk_call_signals").select("id,type,payload,from_id,created_at")
+      .eq("call_id", callId).eq("to_id", me.id).gt("created_at", Number.isFinite(after) ? after : 0)
+      .order("created_at", { ascending: true }).limit(100);
+    if (error) return fail("signals_read_failed", 500);
+    const latest = (signals || []).reduce((value:number, signal:any) => Math.max(value, signal.created_at), after);
+    if (signals?.length) await db.from("m4zk_call_signals").delete().in("id", signals.map((signal:any) => signal.id));
+    return json({ signals: (signals || []).map((signal:any) => ({ type:signal.type, payload:signal.payload, fromId:signal.from_id, createdAt:signal.created_at })), status:call.status, cursor:latest });
+  }
   if(path==="/v1/stories"&&method==="GET"){
     const {data:mine}=await db.from("m4zk_stories").select("*").eq("user_id",me.id).gt("expires_at",now());
     const {data:shared}=await db.from("m4zk_story_recipients").select("story_id,nonce,ciphertext").eq("user_id",me.id);
