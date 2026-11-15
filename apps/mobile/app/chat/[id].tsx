@@ -186,8 +186,11 @@ export default function Chat() {
             }}
             delayLongPress={280}
           >
-            <Text style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
+            <Text selectable style={[styles.body, item.mine && styles.bodyMine]}>{item.body}</Text>
             <View style={styles.stampLine}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Beri reaksi" onPress={() => setReactionTarget(item.id)} hitSlop={8}>
+                <Text style={styles.reactButton}>☺</Text>
+              </Pressable>
               <Text style={[styles.stamp, item.mine && styles.stampMine]}>
                 {new Date(item.at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
               </Text>
@@ -297,6 +300,7 @@ const styles = StyleSheet.create({
   body: { color: colors.text, fontFamily: 'System', fontSize: 14, lineHeight: 21 },
   bodyMine: { color: '#E9EDEF' },
   stampLine: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 4 },
+  reactButton: { color: colors.textDim, fontSize: 15, fontWeight: '800', paddingHorizontal: 3 },
   stamp: { color: colors.textDim, fontFamily: 'System', fontSize: 10, textAlign: 'right' },
   receipt: { color: '#A9DCCF', fontSize: 11, fontWeight: '900' },
   receiptDelivered: { color: '#B9E8DD' },
