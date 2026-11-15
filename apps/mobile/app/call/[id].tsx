@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { api } from '../../lib/api';
-import { getSocket } from '../../lib/socket';
 import { useSession } from '../../lib/identity';
 import { colors, space, type, border, radius } from '../../lib/theme';
 
@@ -25,134 +24,141 @@ export default function Call() {
   const [camOff, setCamOff] = useState(false);
   const [remoteUrl, setRemoteUrl] = useState<string | null>(null);
   const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const [activeCallId, setActiveCallId] = useState(String(incomingCallId || ''));
+
 
   const rtc = useRef<WebRTC | null>(null);
   const pc = useRef<any>(null);
   const stream = useRef<any>(null);
-  const socketHandlers = useRef<{ socket: any; answer: any; ice: any; end: any } | null>(null);
   const pendingIce = useRef<any[]>([]);
+  const signalCursor = useRef(0);
   const callId = useRef(String(incomingCallId || `call_${Math.random().toString(36).slice(2, 10)}`));
 
   const video = mode === 'video';
 
   useEffect(() => {
     let cancelled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollBusy = false;
+    let peer: any = null;
+    let media: any = null;
+    let callKey = String(incomingCallId || '');
 
-    (async () => {
-      let mod: any;
+    async function start() {
       try {
-        mod = require('react-native-webrtc');
-      } catch {
-        setStatus('WebRTC belum ada — pakai dev build');
-        return;
-      }
-      rtc.current = mod;
-
-      const socket = getSocket();
-      if (!socket || !session) return;
-
-      const media = await mod.mediaDevices.getUserMedia({
-        audio: true,
-        video: video ? { facingMode: 'user' } : false,
-      });
-      if (cancelled) return;
-
-      stream.current = media;
-      setLocalUrl(media.toURL());
-
-      const peer = new mod.RTCPeerConnection(ICE);
-      pc.current = peer;
-
-      media.getTracks().forEach((track: any) => peer.addTrack(track, media));
-
-      peer.onicecandidate = (event: any) => {
-        if (event.candidate) {
-          socket.emit('call:ice', { to: String(id), callId: callId.current, candidate: event.candidate });
+        if (!session) throw new Error('session_required');
+        if (!callKey) {
+          const created = await api.createCall(String(id), video ? 'video' : 'audio');
+          callKey = created.callId;
         }
-      };
+        if (cancelled) return;
+        callId.current = callKey;
+        setActiveCallId(callKey);
 
-      peer.ontrack = (event: any) => {
-        setRemoteUrl(event.streams[0].toURL());
-        setStatus('tersambung');
-      };
-
-      peer.onconnectionstatechange = () => {
-        if (peer.connectionState === 'connected') setStatus('tersambung');
-        if (['failed', 'disconnected'].includes(peer.connectionState)) setStatus('terputus');
-      };
-
-      const onAnswer = async ({ sdp, callId: answerCallId }: any) => {
-        if (answerCallId !== callId.current) return;
-        await peer.setRemoteDescription(new mod.RTCSessionDescription(sdp));
-        for (const candidate of pendingIce.current.splice(0)) {
-          await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
-        }
-      };
-      const onIce = async ({ candidate, callId: iceCallId }: any) => {
-        if (iceCallId !== callId.current || !candidate) return;
-        if (!peer.remoteDescription) {
-          pendingIce.current.push(candidate);
+        const mod: WebRTC = require('react-native-webrtc');
+        rtc.current = mod;
+        media = await mod.mediaDevices.getUserMedia({
+          audio: true,
+          video: video ? { facingMode: 'user' } : false,
+        });
+        if (cancelled) {
+          media.getTracks().forEach((track: any) => track.stop());
           return;
         }
-        await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
-      };
-      const onEnd = ({ callId: endedCallId }: any) => {
-        if (endedCallId === callId.current) hangup(false);
-      };
+        stream.current = media;
+        setLocalUrl(media.toURL());
 
-      socketHandlers.current = { socket, answer: onAnswer, ice: onIce, end: onEnd };
-      socket.on('call:answer', onAnswer);
-      socket.on('call:ice', onIce);
-      socket.on('call:end', onEnd);
+        peer = new mod.RTCPeerConnection(ICE);
+        pc.current = peer;
+        media.getTracks().forEach((track: any) => peer.addTrack(track, media));
 
-      if (incoming === '1' && offer) {
-        const remoteOffer = JSON.parse(String(offer));
-        await peer.setRemoteDescription(new mod.RTCSessionDescription(remoteOffer));
-        for (const candidate of pendingIce.current.splice(0)) {
-          await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+        peer.onicecandidate = (event: any) => {
+          if (event.candidate) {
+            api.sendCallSignal(callKey, 'ice', { candidate: event.candidate }).catch(() => {});
+          }
+        };
+        peer.ontrack = (event: any) => {
+          if (event.streams?.[0]) setRemoteUrl(event.streams[0].toURL());
+          setStatus('tersambung');
+        };
+        peer.onconnectionstatechange = () => {
+          if (peer.connectionState === 'connected') setStatus('tersambung');
+          if (['failed', 'disconnected'].includes(peer.connectionState)) setStatus('koneksi terputus');
+        };
+
+        if (incoming !== '1') {
+          const outgoingOffer = await peer.createOffer();
+          await peer.setLocalDescription(outgoingOffer);
+          await api.sendCallSignal(callKey, 'offer', { sdp: outgoingOffer, mode: video ? 'video' : 'audio' });
+          setStatus('memanggil...');
+        } else {
+          setStatus('menunggu penawaran panggilan...');
         }
-        const answer = await peer.createAnswer();
-        await peer.setLocalDescription(answer);
-        socket.emit('call:answer', {
-          to: String(id),
-          callId: callId.current,
-          sdp: answer,
-        });
-        setStatus('menjawab panggilan...');
-      } else {
-        const outgoingOffer = await peer.createOffer();
-        await peer.setLocalDescription(outgoingOffer);
-        socket.emit('call:offer', {
-          to: String(id),
-          callId: callId.current,
-          sdp: outgoingOffer,
-          mode: video ? 'video' : 'audio',
-        });
+
+        const poll = async () => {
+          if (pollBusy || cancelled) return;
+          pollBusy = true;
+          try {
+            const result = await api.pollCallSignals(callKey, signalCursor.current);
+            signalCursor.current = Math.max(signalCursor.current, result.cursor || 0);
+            for (const signal of result.signals) {
+              if (signal.type === 'offer' && incoming === '1' && !peer.remoteDescription) {
+                await peer.setRemoteDescription(new mod.RTCSessionDescription(signal.payload.sdp));
+                for (const candidate of pendingIce.current.splice(0)) {
+                  await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+                }
+                const answer = await peer.createAnswer();
+                await peer.setLocalDescription(answer);
+                await api.sendCallSignal(callKey, 'answer', { sdp: answer });
+                setStatus('menjawab panggilan...');
+              } else if (signal.type === 'answer' && incoming !== '1' && !peer.remoteDescription) {
+                await peer.setRemoteDescription(new mod.RTCSessionDescription(signal.payload.sdp));
+                for (const candidate of pendingIce.current.splice(0)) {
+                  await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+                }
+                setStatus('menghubungkan...');
+              } else if (signal.type === 'ice' && signal.payload?.candidate) {
+                const candidate = signal.payload.candidate;
+                if (!peer.remoteDescription) pendingIce.current.push(candidate);
+                else await peer.addIceCandidate(new mod.RTCIceCandidate(candidate)).catch(() => {});
+              } else if (signal.type === 'end' || signal.type === 'reject') {
+                setStatus(signal.type === 'reject' ? 'panggilan ditolak' : 'panggilan berakhir');
+                hangup(false);
+                return;
+              }
+            }
+            if (result.status === 'ended' || result.status === 'rejected') {
+              setStatus('panggilan berakhir');
+              hangup(false);
+            }
+          } catch {
+            // A transient network failure is retried on the next poll.
+          } finally {
+            pollBusy = false;
+          }
+        };
+        await poll();
+        pollTimer = setInterval(() => { void poll(); }, 900);
+      } catch (error) {
+        setStatus(error instanceof Error && error.message === 'session_required'
+          ? 'sesi tidak tersedia'
+          : 'gagal memulai panggilan');
       }
+    }
 
-      return () => {
-        socket.off('call:answer', onAnswer);
-        socket.off('call:ice', onIce);
-        socket.off('call:end', onEnd);
-      };
-    })();
-
+    void start();
     return () => {
       cancelled = true;
-      if (socketHandlers.current) {
-        const { socket, answer, ice, end } = socketHandlers.current;
-        socket.off('call:answer', answer);
-        socket.off('call:ice', ice);
-        socket.off('call:end', end);
-        socketHandlers.current = null;
-      }
-      stream.current?.getTracks().forEach((t: any) => t.stop());
-      pc.current?.close?.();
+      if (pollTimer) clearInterval(pollTimer);
+      media?.getTracks().forEach((track: any) => track.stop());
+      peer?.close?.();
+      stream.current = null;
+      pc.current = null;
     };
-  }, [id, video, session?.user.id, incoming, incomingCallId, offer]);
+  }, [id, video, session?.user.id, incoming, incomingCallId]);
 
   function hangup(notifyPeer = true) {
-    if (notifyPeer) getSocket()?.emit('call:end', { to: String(id), callId: callId.current });
+    if (notifyPeer && activeCallId) api.sendCallSignal(activeCallId, 'end').catch(() => {});
     stream.current?.getTracks().forEach((t: any) => t.stop());
     pc.current?.close?.();
     router.back();
