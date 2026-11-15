@@ -33,12 +33,16 @@ export type WireMessage = {
   recipientId: string;
   nonce: string;
   ciphertext: string;
-  kind: 'text' | 'image' | 'voice';
+  kind: 'text' | 'image' | 'voice' | 'video' | 'deleted';
   createdAt: number;
   readAt: number | null;
+  deliveredAt?: number | null;
+  durationMs?: number | null;
   serverSeq?: number;
   clientMsgId?: string | null;
   status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
+  reactions?: { emoji: string; count: number; mine: boolean }[];
+  deletedAt?: number | null;
 };
 
 export class ApiError extends Error {
@@ -111,14 +115,42 @@ export const api = {
       `/v1/messages/${peerId}${before ? `?before=${before}` : ''}`,
     ),
 
-  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text', clientMsgId = Crypto.randomUUID()) =>
+  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text', clientMsgId = Crypto.randomUUID(), durationMs?: number) =>
     request<{ message: WireMessage }>('/v1/messages', {
       method: 'POST',
-      body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId }),
+      body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId, ...(durationMs == null ? {} : { durationMs }) }),
+    }),
+
+  reactToMessage: (messageId: string, emoji: string) =>
+    request<{ reactions: { emoji: string; count: number; mine: boolean }[] }>(`/v1/messages/${encodeURIComponent(messageId)}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ emoji }),
+    }),
+
+  deleteMessage: (messageId: string, mode: 'me' | 'everyone') =>
+    request<{ ok: true; deletedAt?: number }>(`/v1/messages/${encodeURIComponent(messageId)}?mode=${mode}`, {
+      method: 'DELETE',
     }),
 
   markRead: (peerId: string) =>
     request<{ ok: true }>(`/v1/messages/${peerId}/read`, { method: 'POST' }),
+
+  createCall: (to: string, mode: 'audio' | 'video') =>
+    request<{ callId: string; mode: string; status: string; createdAt: number }>('/v1/calls', {
+      method: 'POST', body: JSON.stringify({ to, mode }),
+    }),
+
+  incomingCalls: () => request<{ calls: { id: string; caller_id: string; mode: 'audio' | 'video'; status: string; created_at: number; caller: any }[] }>('/v1/calls/incoming'),
+
+  sendCallSignal: (callId: string, type: 'offer' | 'answer' | 'ice' | 'end' | 'reject', payload: any = {}) =>
+    request<{ ok: true }>(`/v1/calls/${encodeURIComponent(callId)}/signals`, {
+      method: 'POST', body: JSON.stringify({ type, payload }),
+    }),
+
+  pollCallSignals: (callId: string, after = 0) =>
+    request<{ signals: { type: 'offer' | 'answer' | 'ice' | 'end' | 'reject'; payload: any; fromId: string; createdAt: number }[]; status: string; cursor: number }>(
+      `/v1/calls/${encodeURIComponent(callId)}/signals?after=${after}`,
+    ),
 
   stories: () => request<{ stories: any[] }>('/v1/stories'),
 
@@ -127,10 +159,11 @@ export const api = {
     ciphertext: string,
     recipients: { userId: string; nonce: string; ciphertext: string }[],
     kind = 'text',
+    durationMs?: number,
   ) =>
     request<{ id: string }>('/v1/stories', {
       method: 'POST',
-      body: JSON.stringify({ nonce, ciphertext, recipients, kind }),
+      body: JSON.stringify({ nonce, ciphertext, recipients, kind, ...(durationMs == null ? {} : { durationMs }) }),
     }),
 
   viewStory: (storyId: string) =>

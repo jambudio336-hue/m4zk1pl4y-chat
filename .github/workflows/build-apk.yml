@@ -2,8 +2,10 @@ name: Build Release APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feat/**']
     tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       api_url:

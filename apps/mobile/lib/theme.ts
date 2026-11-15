@@ -1,14 +1,15 @@
 export const colors = {
-  bg: '#0B141A',
-  panel: '#111B21',
-  panelAlt: '#202C33',
-  line: '#2A3942',
-  lineDim: '#26343B',
-  text: '#E9EDEF',
-  textDim: '#8696A0',
-  accent: '#00A884',
-  danger: '#F15C6D',
-  ok: '#25D366',
+  // Cyber-dark surfaces with familiar messenger contrast and WhatsApp-like green actions.
+  bg: '#070A0F',
+  panel: '#0D131B',
+  panelAlt: '#141E28',
+  line: '#243341',
+  lineDim: '#1B2935',
+  text: '#EAF2F5',
+  textDim: '#91A2AD',
+  accent: '#00E5B0',
+  danger: '#FF5268',
+  ok: '#36E58C',
 };
 
 export const space = { xs: 4, sm: 8, md: 14, lg: 20, xl: 30 };
@@ -32,7 +33,7 @@ export const type = {
   },
 };
 
-export const ACCENTS = ['#00A884', '#25D366', '#53BDEB', '#7C83FD', '#D98BEA', '#F5A623'];
+export const ACCENTS = ['#00E5B0', '#36E58C', '#53BDEB', '#8B8FFF', '#D98BEA', '#FFB84D'];
 
 export function pickAccent(seed: string): string {
   let h = 0;
