@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, TextInput } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, TextInput, Alert } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Avatar } from '../../components/Avatar';
@@ -22,6 +22,7 @@ export default function Chats() {
   const [rows, setRows] = useState<ChatRow[]>([]);
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const handledCalls = useRef(new Set<string>());
 
   const load = useCallback(async () => {
     const { contacts } = await api.contacts();
@@ -47,6 +48,38 @@ export default function Chats() {
     const refresh = setInterval(() => { load().catch(() => {}); }, 15000);
     return () => clearInterval(refresh);
   }, [load]));
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    const checkIncoming = async () => {
+      try {
+        const { calls } = await api.incomingCalls();
+        if (!active) return;
+        for (const call of calls) {
+          if (handledCalls.current.has(call.id)) continue;
+          handledCalls.current.add(call.id);
+          const caller = call.caller;
+          const label = caller?.display_name || caller?.handle || 'Kontak';
+          Alert.alert(
+            call.mode === 'video' ? 'PANGGILAN VIDEO MASUK' : 'PANGGILAN SUARA MASUK',
+            `Panggilan dari ${label}`,
+            [
+              { text: 'TOLAK', style: 'cancel', onPress: () => { api.sendCallSignal(call.id, 'reject').catch(() => {}); } },
+              { text: 'ANGKAT', onPress: () => router.push({
+                pathname: '/call/[id]',
+                params: { id: call.caller_id, handle: caller?.handle || label, mode: call.mode, incoming: '1', callId: call.id },
+              }) },
+            ],
+          );
+        }
+      } catch {
+        // Incoming call polling resumes on the next interval.
+      }
+    };
+    void checkIncoming();
+    const timer = setInterval(() => { void checkIncoming(); }, 2500);
+    return () => { active = false; clearInterval(timer); };
+  }, []));
 
   const filtered = useMemo(() => rows.filter((item) => {
     const value = query.trim().toLowerCase();
