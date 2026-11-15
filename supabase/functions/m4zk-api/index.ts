@@ -326,14 +326,26 @@ async function handle(req: Request) {
     return json({reactions:[...grouped.values()]});
   }
   const readMatch=path.match(/^\/v1\/messages\/([^/]+)\/read$/);
-  if(readMatch&&method==="POST"){await db.from("m4zk_messages").update({read_at:now()}).eq("recipient_id",me.id).eq("sender_id",readMatch[1]).is("read_at",null);return json({ok:true});}
+  if(readMatch&&method==="POST"){
+    const {error:readError}=await db.from("m4zk_messages").update({read_at:now()}).eq("recipient_id",me.id).eq("sender_id",readMatch[1]).is("read_at",null);
+    if(readError)return fail("read_receipt_failed",500);
+    return json({ok:true});
+  }
 
   if(path==="/v1/stories"&&method==="GET"){
     const {data:mine}=await db.from("m4zk_stories").select("*").eq("user_id",me.id).gt("expires_at",now());
     const {data:shared}=await db.from("m4zk_story_recipients").select("story_id,nonce,ciphertext").eq("user_id",me.id);
     const sharedIds=(shared||[]).map((x:any)=>x.story_id);
-    const {data:others}=sharedIds.length?await db.from("m4zk_stories").select("*,author:m4zk_users!m4zk_stories_user_id_fkey(handle,display_name,accent,avatar_url)").in("id",sharedIds).gt("expires_at",now()):{data:[]};
-    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,avatarUrl:me.avatar_url??null,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,avatarUrl:s.author?.avatar_url??null,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:false,mine:false};})];
+    const mineIds=(mine||[]).map((x:any)=>x.id);
+    const [{data:others},{data:mineViews},{data:seenRows}]=await Promise.all([
+      sharedIds.length?db.from("m4zk_stories").select("*,author:m4zk_users!m4zk_stories_user_id_fkey(handle,display_name,accent,avatar_url)").in("id",sharedIds).gt("expires_at",now()):Promise.resolve({data:[]}),
+      mineIds.length?db.from("m4zk_story_views").select("story_id").in("story_id",mineIds):Promise.resolve({data:[]}),
+      sharedIds.length?db.from("m4zk_story_views").select("story_id").eq("user_id",me.id).in("story_id",sharedIds):Promise.resolve({data:[]})
+    ]);
+    const viewCounts=new Map<string,number>();
+    for(const row of mineViews||[])viewCounts.set(row.story_id,(viewCounts.get(row.story_id)||0)+1);
+    const seenIds=new Set((seenRows||[]).map((row:any)=>row.story_id));
+    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,avatarUrl:me.avatar_url??null,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:viewCounts.get(s.id)||0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,avatarUrl:s.author?.avatar_url??null,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:seenIds.has(s.id),mine:false};})];
     return json({stories});
   }
   if(path==="/v1/stories"&&method==="POST"){
