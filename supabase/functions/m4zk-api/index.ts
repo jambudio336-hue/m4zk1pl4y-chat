@@ -236,7 +236,7 @@ async function handle(req: Request) {
     }});
     const messageKind = ["text","image","voice","video"].includes(body.kind) ? String(body.kind) : "text";
     const durationMs = body.durationMs == null ? null : Number(body.durationMs);
-    if (messageKind === "video" && (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 1800000)) return fail("invalid_video_duration");
+    if (messageKind === "video" && (durationMs == null || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 1800000)) return fail("invalid_video_duration");
     const message={id:id(),sender_id:me.id,recipient_id:to,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:messageKind,duration_ms:durationMs,created_at:now(),read_at:null,client_msg_id:clientMsgId,status:"sent"};
     const {data:stored,error}=await db.from("m4zk_messages").insert(message).select("*").single();
     if(error) {
@@ -354,7 +354,7 @@ async function handle(req: Request) {
   if(path==="/v1/stories"&&method==="POST"){
     const storyKind = ["text","image","video"].includes(body.kind) ? String(body.kind) : "text";
     const durationMs = body.durationMs == null ? null : Number(body.durationMs);
-    if (storyKind === "video" && (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000)) return fail("invalid_story_video_duration");
+    if (storyKind === "video" && (durationMs == null || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000)) return fail("invalid_story_video_duration");
     const story={id:id(),user_id:me.id,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:storyKind,duration_ms:durationMs,expires_at:now()+86400000,created_at:now()};
     const {error}=await db.from("m4zk_stories").insert(story); if(error)return fail("story_create_failed",500);
     const recipients=Array.isArray(body.recipients)?body.recipients.slice(0,500):[];
