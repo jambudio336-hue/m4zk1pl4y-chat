@@ -135,6 +135,23 @@ export const api = {
   markRead: (peerId: string) =>
     request<{ ok: true }>(`/v1/messages/${peerId}/read`, { method: 'POST' }),
 
+  createCall: (to: string, mode: 'audio' | 'video') =>
+    request<{ callId: string; mode: string; status: string; createdAt: number }>('/v1/calls', {
+      method: 'POST', body: JSON.stringify({ to, mode }),
+    }),
+
+  incomingCalls: () => request<{ calls: { id: string; caller_id: string; mode: 'audio' | 'video'; status: string; created_at: number; caller: any }[] }>('/v1/calls/incoming'),
+
+  sendCallSignal: (callId: string, type: 'offer' | 'answer' | 'ice' | 'end' | 'reject', payload: any = {}) =>
+    request<{ ok: true }>(`/v1/calls/${encodeURIComponent(callId)}/signals`, {
+      method: 'POST', body: JSON.stringify({ type, payload }),
+    }),
+
+  pollCallSignals: (callId: string, after = 0) =>
+    request<{ signals: { type: 'offer' | 'answer' | 'ice' | 'end' | 'reject'; payload: any; fromId: string; createdAt: number }[]; status: string; cursor: number }>(
+      `/v1/calls/${encodeURIComponent(callId)}/signals?after=${after}`,
+    ),
+
   stories: () => request<{ stories: any[] }>('/v1/stories'),
 
   postStory: (
