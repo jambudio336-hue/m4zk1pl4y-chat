@@ -234,7 +234,10 @@ async function handle(req: Request) {
       createdAt:duplicate.created_at, readAt:duplicate.read_at,
       serverSeq:duplicate.server_seq, clientMsgId:duplicate.client_msg_id, status:duplicate.status
     }});
-    const message={id:id(),sender_id:me.id,recipient_id:to,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:["text","image","voice"].includes(body.kind)?body.kind:"text",created_at:now(),read_at:null,client_msg_id:clientMsgId,status:"sent"};
+    const messageKind = ["text","image","voice","video"].includes(body.kind) ? String(body.kind) : "text";
+    const durationMs = body.durationMs == null ? null : Number(body.durationMs);
+    if (messageKind === "video" && (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 1800000)) return fail("invalid_video_duration");
+    const message={id:id(),sender_id:me.id,recipient_id:to,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:messageKind,duration_ms:durationMs,created_at:now(),read_at:null,client_msg_id:clientMsgId,status:"sent"};
     const {data:stored,error}=await db.from("m4zk_messages").insert(message).select("*").single();
     if(error) {
       if (error.code === "23505") {
@@ -243,13 +246,13 @@ async function handle(req: Request) {
         if (raced) return json({ message: {
           id:raced.id, senderId:raced.sender_id, recipientId:raced.recipient_id,
           nonce:raced.nonce, ciphertext:raced.ciphertext, kind:raced.kind,
-          createdAt:raced.created_at, readAt:raced.read_at,
+          createdAt:raced.created_at, readAt:raced.read_at, durationMs:raced.duration_ms??null,
           serverSeq:raced.server_seq, clientMsgId:raced.client_msg_id, status:raced.status
         }});
       }
       return fail("message_store_failed",500);
     }
-    return json({message:{id:stored.id,senderId:stored.sender_id,recipientId:stored.recipient_id,nonce:stored.nonce,ciphertext:stored.ciphertext,kind:stored.kind,createdAt:stored.created_at,readAt:stored.read_at,serverSeq:stored.server_seq,clientMsgId:stored.client_msg_id,status:stored.status}},201);
+    return json({message:{id:stored.id,senderId:stored.sender_id,recipientId:stored.recipient_id,nonce:stored.nonce,ciphertext:stored.ciphertext,kind:stored.kind,createdAt:stored.created_at,readAt:stored.read_at,durationMs:stored.duration_ms??null,serverSeq:stored.server_seq,clientMsgId:stored.client_msg_id,status:stored.status}},201);
   }
   const messageMatch=path.match(/^\/v1\/messages\/([^/]+)$/);
   if(messageMatch&&method==="GET"){
@@ -279,7 +282,7 @@ async function handle(req: Request) {
       else list.push({emoji:reaction.emoji,count:1,mine:reaction.user_id===me.id});
       reactionsByMessage.set(reaction.message_id,list);
     }
-    return json({messages:rows.filter((m:any)=>!hiddenIds.has(m.id)).map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.deleted_at?"":m.nonce,ciphertext:m.deleted_at?"":m.ciphertext,kind:m.deleted_at?"deleted":m.kind,createdAt:m.created_at,readAt:m.read_at,deliveredAt:m.delivered_at??null,deletedAt:m.deleted_at??null,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status,reactions:m.deleted_at?[]:(reactionsByMessage.get(m.id)||[])}))});
+    return json({messages:rows.filter((m:any)=>!hiddenIds.has(m.id)).map((m:any)=>({id:m.id,senderId:m.sender_id,recipientId:m.recipient_id,nonce:m.deleted_at?"":m.nonce,ciphertext:m.deleted_at?"":m.ciphertext,kind:m.deleted_at?"deleted":m.kind,createdAt:m.created_at,readAt:m.read_at,durationMs:m.duration_ms??null,deliveredAt:m.delivered_at??null,deletedAt:m.deleted_at??null,serverSeq:m.server_seq,clientMsgId:m.client_msg_id,status:m.status,reactions:m.deleted_at?[]:(reactionsByMessage.get(m.id)||[])}))});
   }
   if(messageMatch&&method==="DELETE"){
     const {data:message}=await db.from("m4zk_messages").select("id,sender_id,recipient_id,created_at,deleted_at").eq("id",messageMatch[1]).maybeSingle();
@@ -345,11 +348,14 @@ async function handle(req: Request) {
     const viewCounts=new Map<string,number>();
     for(const row of mineViews||[])viewCounts.set(row.story_id,(viewCounts.get(row.story_id)||0)+1);
     const seenIds=new Set((seenRows||[]).map((row:any)=>row.story_id));
-    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,avatarUrl:me.avatar_url??null,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:viewCounts.get(s.id)||0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,avatarUrl:s.author?.avatar_url??null,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,expiresAt:s.expires_at,viewCount:0,seen:seenIds.has(s.id),mine:false};})];
+    const stories=[...(mine||[]).map((s:any)=>({id:s.id,userId:s.user_id,handle:me.handle,displayName:me.display_name,accent:me.accent,avatarUrl:me.avatar_url??null,nonce:s.nonce,ciphertext:s.ciphertext,kind:s.kind,createdAt:s.created_at,durationMs:s.duration_ms??null,expiresAt:s.expires_at,viewCount:viewCounts.get(s.id)||0,seen:false,mine:true})),...(others||[]).map((s:any)=>{const r=(shared||[]).find((x:any)=>x.story_id===s.id);return {id:s.id,userId:s.user_id,handle:s.author?.handle,displayName:s.author?.display_name,accent:s.author?.accent,avatarUrl:s.author?.avatar_url??null,nonce:r?.nonce,ciphertext:r?.ciphertext,kind:s.kind,createdAt:s.created_at,durationMs:s.duration_ms??null,expiresAt:s.expires_at,viewCount:0,seen:seenIds.has(s.id),mine:false};})];
     return json({stories});
   }
   if(path==="/v1/stories"&&method==="POST"){
-    const story={id:id(),user_id:me.id,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:body.kind==="image"?"image":"text",expires_at:now()+86400000,created_at:now()};
+    const storyKind = ["text","image","video"].includes(body.kind) ? String(body.kind) : "text";
+    const durationMs = body.durationMs == null ? null : Number(body.durationMs);
+    if (storyKind === "video" && (!Number.isInteger(durationMs) || durationMs < 1 || durationMs > 120000)) return fail("invalid_story_video_duration");
+    const story={id:id(),user_id:me.id,nonce:String(body.nonce||""),ciphertext:String(body.ciphertext||""),kind:storyKind,duration_ms:durationMs,expires_at:now()+86400000,created_at:now()};
     const {error}=await db.from("m4zk_stories").insert(story); if(error)return fail("story_create_failed",500);
     const recipients=Array.isArray(body.recipients)?body.recipients.slice(0,500):[];
     for(const r of recipients){if(r.userId===me.id||!await accepted(me.id,r.userId)||await blocked(me.id,r.userId))continue;await db.from("m4zk_story_recipients").insert({story_id:story.id,user_id:r.userId,nonce:r.nonce,ciphertext:r.ciphertext});}
