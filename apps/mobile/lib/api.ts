@@ -37,6 +37,7 @@ export type WireMessage = {
   createdAt: number;
   readAt: number | null;
   deliveredAt?: number | null;
+  durationMs?: number | null;
   serverSeq?: number;
   clientMsgId?: string | null;
   status?: 'queued' | 'sent' | 'delivered' | 'read' | 'failed';
@@ -114,10 +115,10 @@ export const api = {
       `/v1/messages/${peerId}${before ? `?before=${before}` : ''}`,
     ),
 
-  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text', clientMsgId = Crypto.randomUUID()) =>
+  sendMessage: (to: string, nonce: string, ciphertext: string, kind = 'text', clientMsgId = Crypto.randomUUID(), durationMs?: number) =>
     request<{ message: WireMessage }>('/v1/messages', {
       method: 'POST',
-      body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId }),
+      body: JSON.stringify({ to, nonce, ciphertext, kind, clientMsgId, ...(durationMs == null ? {} : { durationMs }) }),
     }),
 
   reactToMessage: (messageId: string, emoji: string) =>
@@ -141,10 +142,11 @@ export const api = {
     ciphertext: string,
     recipients: { userId: string; nonce: string; ciphertext: string }[],
     kind = 'text',
+    durationMs?: number,
   ) =>
     request<{ id: string }>('/v1/stories', {
       method: 'POST',
-      body: JSON.stringify({ nonce, ciphertext, recipients, kind }),
+      body: JSON.stringify({ nonce, ciphertext, recipients, kind, ...(durationMs == null ? {} : { durationMs }) }),
     }),
 
   viewStory: (storyId: string) =>
