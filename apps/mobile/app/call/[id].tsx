@@ -8,6 +8,8 @@ import { colors, space, type, border, radius } from '../../lib/theme';
 
 type WebRTC = {
   RTCPeerConnection: any;
+  RTCSessionDescription: any;
+  RTCIceCandidate: any;
   RTCView: any;
   mediaDevices: any;
 };
